@@ -1,0 +1,6 @@
+{
+  "dependencies": {
+    "mongodb": "^6.18.0",
+    "pdf2image": "^1.2.3"
+  }
+}

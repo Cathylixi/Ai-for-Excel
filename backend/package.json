@@ -1,0 +1,38 @@
+{
+  "name": "backend",
+  "version": "1.0.0",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "test": "echo \"LLX Excel Business Cost 后端\" && node server.js --test"
+  },
+  "keywords": [
+    "office-addin",
+    "mongodb",
+    "excel",
+    "api",
+    "file-upload",
+    "document-analysis"
+  ],
+  "author": "",
+  "license": "ISC",
+  "description": "LLX Excel Business Cost - 文档分析与成本估算后端",
+  "dependencies": {
+    "canvas": "^3.1.2",
+    "cheerio": "^1.1.2",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.1",
+    "express": "^4.18.2",
+    "mammoth": "^1.9.1",
+    "mongoose": "^8.17.0",
+    "multer": "^2.0.2",
+    "openai": "^5.11.0",
+    "pdf-parse": "^1.1.1",
+    "pdf2pic": "^3.2.0",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.10"
+  }
+}
