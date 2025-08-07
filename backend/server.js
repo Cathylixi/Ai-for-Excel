@@ -8,13 +8,33 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
+const os = require('os');
 require('dotenv').config();
 
 const app = express();
 
+// 引入路由
+const documentRoutes = require('./routes/documentRoutes');
+
 // 中间件配置
 app.use(cors());
 app.use(express.json());
+
+// 测试路由
+app.get('/api/test', (req, res) => {
+  res.json({
+    success: true,
+    message: '后端 API 连接成功！',
+    data: {
+      server: 'running',
+      database: 'connected',
+      databaseType: 'MongoDB Atlas'
+    }
+  });
+});
+
+// 注册路由
+app.use('/api', documentRoutes);
 
 // 配置文件上传
 const upload = multer({
@@ -76,10 +96,6 @@ app.get('/api/test', (req, res) => {
     }
   });
 });
-
-// 添加文档相关路由
-const documentRoutes = require('./routes/documentRoutes');
-app.use('/api', documentRoutes);
 
 // 文档分析API
 app.post('/api/analyze-document', upload.single('document'), async (req, res) => {
@@ -238,17 +254,15 @@ app.use('*', (req, res) => {
 // 启动服务器
 const PORT = process.env.PORT || 4000;
 
-// 使用HTTPS启动服务器（使用Office开发证书）
-const certPath = process.env.HOME + '/.office-addin-dev-certs/localhost.crt';
-const keyPath = process.env.HOME + '/.office-addin-dev-certs/localhost.key';
-
-if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
-  const httpsOptions = {
-    key: fs.readFileSync(keyPath),
-    cert: fs.readFileSync(certPath)
+// 尝试使用HTTPS (用于Office Add-in开发)
+try {
+  const certPath = path.join(os.homedir(), '.office-addin-dev-certs');
+  const sslOptions = {
+    key: fs.readFileSync(path.join(certPath, 'localhost.key')),
+    cert: fs.readFileSync(path.join(certPath, 'localhost.crt'))
   };
-  
-  https.createServer(httpsOptions, app).listen(PORT, () => {
+
+  https.createServer(sslOptions, app).listen(PORT, () => {
     console.log(`🚀 LLX Excel Business Cost 服务器运行在 https://localhost:${PORT}`);
     console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 数据库: MongoDB Atlas`);
@@ -261,13 +275,13 @@ if (fs.existsSync(certPath) && fs.existsSync(keyPath)) {
     console.log(`  PATCH /api/documents/:id/confirm-sdtm - 确认SDTM分析结果`);
     console.log(`  GET  /api/documents/:id/export-schedule - 导出评估时间表为Excel文件`);
   });
-} else {
-  // 如果没有找到证书，使用HTTP（开发模式）
+} catch (error) {
+  console.log('⚠️ HTTPS证书未找到，使用HTTP模式');
   app.listen(PORT, () => {
     console.log(`🚀 服务器运行在 http://localhost:${PORT}`);
     console.log(`📝 环境: ${process.env.NODE_ENV || 'development'}`);
     console.log(`🌐 数据库: MongoDB Atlas`);
-    console.log(`⚠️  警告: 未找到HTTPS证书，使用HTTP模式`);
+    console.log(`⚠️ SSL: 未启用`);
   });
 }
 

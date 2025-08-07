@@ -6,7 +6,8 @@ const {
   getDocuments, 
   getDocumentContent, 
   exportAssessmentSchedule,
-  confirmSDTMAnalysis
+  confirmSDTMAnalysis,
+  updateProjectSelection
 } = require('../controllers/documentController');
 
 const router = express.Router();
@@ -60,5 +61,8 @@ router.get('/documents/:id/export-schedule', exportAssessmentSchedule);
 
 // 确认SDTM分析结果 API
 router.patch('/documents/:id/confirm-sdtm', confirmSDTMAnalysis);
+
+// 🔥 新增：更新项目选择详细信息 API
+router.patch('/documents/:id/project-selection', updateProjectSelection);
 
 module.exports = router; 

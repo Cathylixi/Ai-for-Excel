@@ -1,0 +1,197 @@
+# LLX Excel Business Cost Analysis - Dependencies & Requirements
+# 
+# This file contains all necessary dependencies and setup instructions
+# for the LLX Excel Office Add-in project.
+#
+# Project Structure:
+# - Frontend: Office Add-in (Excel Task Pane) - Uses Webpack & Office.js
+# - Backend: Node.js API Server - Uses Express, MongoDB, OpenAI
+#
+# ============================================================================
+# SYSTEM REQUIREMENTS
+# ============================================================================
+# 
+# 1. Node.js >= 16.0.0 (Recommended: 18.x or 20.x LTS)
+#    Download: https://nodejs.org/
+#
+# 2. MongoDB Atlas Account (or local MongoDB instance)
+#    Sign up: https://www.mongodb.com/cloud/atlas
+#
+# 3. OpenAI API Key
+#    Get API key: https://platform.openai.com/api-keys
+#
+# 4. Office 365 / Excel Desktop Application
+#    For testing the Office Add-in
+#
+# ============================================================================
+# BACKEND DEPENDENCIES (Node.js)
+# ============================================================================
+
+# Core Backend Framework
+express@^4.18.2                    # Fast, unopinionated web framework
+cors@^2.8.5                        # Enable Cross-Origin Resource Sharing
+dotenv@^17.2.1                     # Load environment variables from .env file
+
+# Database & ODM
+mongoose@^8.17.0                   # MongoDB object modeling for Node.js
+mongodb@^6.18.0                    # Official MongoDB driver
+
+# File Upload & Processing
+multer@^2.0.2                      # Middleware for handling multipart/form-data
+mammoth@^1.9.1                     # Convert .docx to HTML/text
+pdf-parse@^1.1.1                   # Parse PDF files to extract text
+pdf2pic@^3.2.0                     # Convert PDF pages to images
+canvas@^3.1.2                      # Canvas API for image processing
+
+# HTML Processing & Analysis
+cheerio@^1.1.2                     # Server-side jQuery for HTML parsing
+
+# AI & Machine Learning
+openai@^5.11.0                     # OpenAI GPT API client
+
+# Excel Generation
+xlsx@^0.18.5                       # Read, parse and write Excel files
+
+# Development Tools
+nodemon@^3.1.10                    # Auto-restart server during development
+
+# ============================================================================
+# FRONTEND DEPENDENCIES (Office Add-in)
+# ============================================================================
+
+# Core Dependencies
+core-js@^3.36.0                    # JavaScript polyfill library
+regenerator-runtime@^0.14.1        # Runtime for regenerator-compiled code
+
+# Build Tools & Bundlers
+webpack@^5.95.0                    # Module bundler
+webpack-cli@^5.1.4                 # Command line interface for webpack
+webpack-dev-server@5.1.0           # Development server with live reloading
+
+# Babel (JavaScript Transpiler)
+@babel/core@^7.24.0                # Babel compiler core
+@babel/preset-env@^7.25.4          # Smart preset for modern JavaScript
+babel-loader@^9.1.3                # Babel loader for webpack
+
+# TypeScript Definitions
+@types/office-js@^1.0.377          # TypeScript definitions for Office.js
+@types/office-runtime@^1.0.35      # TypeScript definitions for Office runtime
+
+# Office Add-in Development Tools
+office-addin-cli@^2.0.3            # Command line tools for Office Add-ins
+office-addin-debugging@^6.0.3       # Debugging tools for Office Add-ins
+office-addin-dev-certs@^2.0.3       # Development certificates manager
+office-addin-lint@^3.0.3            # Linting tools for Office Add-ins
+office-addin-manifest@^2.0.3        # Manifest validation tools
+office-addin-prettier-config@^2.0.1 # Prettier configuration for Office Add-ins
+
+# Webpack Loaders & Plugins
+html-webpack-plugin@^5.6.0         # Generate HTML files for webpack bundles
+copy-webpack-plugin@^12.0.2        # Copy files during webpack build
+file-loader@^6.2.0                 # File loader for webpack
+html-loader@^5.0.0                 # HTML loader for webpack
+source-map-loader@^5.0.0           # Source map loader for debugging
+
+# Polyfills & Browser Compatibility
+os-browserify@^0.3.0               # Browser polyfill for Node.js 'os' module
+process@^0.11.10                    # Browser polyfill for Node.js 'process'
+acorn@^8.11.3                      # JavaScript parser
+
+# Code Quality Tools
+eslint-plugin-office-addins@^4.0.3 # ESLint rules for Office Add-ins
+
+# Additional Dependencies
+pdf2image@^1.2.3                   # Convert PDF to images (root dependency)
+
+# ============================================================================
+# INSTALLATION INSTRUCTIONS
+# ============================================================================
+#
+# 1. Clone the repository:
+#    git clone <your-repo-url>
+#    cd LLXExcel
+#
+# 2. Install root dependencies:
+#    npm install
+#
+# 3. Install backend dependencies:
+#    cd backend
+#    npm install
+#
+# 4. Install frontend dependencies:
+#    cd ../frontend
+#    npm install
+#
+# 5. Set up environment variables:
+#    Create a .env file in the backend directory with:
+#    MONGODB_URI=your_mongodb_atlas_connection_string
+#    OPENAI_API_KEY=your_openai_api_key
+#    PORT=4000
+#    NODE_ENV=development
+#
+# 6. Generate development certificates (for HTTPS):
+#    npx office-addin-dev-certs install
+#
+# 7. Start the backend server:
+#    cd backend
+#    npm start
+#
+# 8. Start the frontend development server:
+#    cd frontend
+#    npm run dev-server
+#
+# 9. Load the Office Add-in in Excel:
+#    - Open Excel
+#    - Go to Insert > Add-ins > My Add-ins
+#    - Upload manifest.xml from the frontend directory
+#    - Or use: npm run start (in frontend directory)
+#
+# ============================================================================
+# TROUBLESHOOTING
+# ============================================================================
+#
+# Common Issues:
+#
+# 1. Port already in use:
+#    pkill -f "node server.js"
+#    pkill -f "webpack serve"
+#
+# 2. HTTPS certificate issues:
+#    npx office-addin-dev-certs install --force
+#
+# 3. MongoDB connection issues:
+#    - Check your MongoDB Atlas connection string
+#    - Ensure IP whitelist includes your current IP
+#    - Verify database user permissions
+#
+# 4. OpenAI API issues:
+#    - Verify your API key is valid
+#    - Check your OpenAI account has available credits
+#    - Ensure the API key has proper permissions
+#
+# 5. Office Add-in not loading:
+#    - Clear Office cache
+#    - Restart Excel
+#    - Check browser developer console for errors
+#
+# ============================================================================
+# BROWSER SUPPORT
+# ============================================================================
+#
+# The application supports:
+# - Last 2 versions of modern browsers
+# - Internet Explorer 11 (for Office Add-in compatibility)
+# - Office 365 / Excel 2016 and later
+#
+# ============================================================================
+# ADDITIONAL NOTES
+# ============================================================================
+#
+# - This project uses HTTPS for both frontend and backend for Office Add-in compatibility
+# - MongoDB collection name is set to 'clinicalprotocol'
+# - Excel files are auto-generated in backend/ScheduleOfAssessment/
+# - Uploaded files are stored in backend/uploads/
+# - All API endpoints are prefixed with '/api'
+#
+# For detailed API documentation and usage examples, 
+# please refer to the project README.md file. 

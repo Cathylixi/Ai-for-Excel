@@ -149,7 +149,7 @@ ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
   ],
   "summary": {
     "total_procedures": ${procedures.length},
-    "total_sdtm_domains": "映射中所有域的总数",
+    "total_sdtm_domains": "unique_domains数组的长度（去重后的唯一域数量）",
     "unique_domains": ["所有不重复的域列表"]
   }
 }`;

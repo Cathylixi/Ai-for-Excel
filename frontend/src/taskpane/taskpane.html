@@ -42,29 +42,31 @@
                     </label>
                 </div>
                 <div class="project-option">
-                    <input type="checkbox" id="project-2" class="ms-CheckBox-input" />
+                    <input type="checkbox" id="project-2" class="ms-CheckBox-input" data-requires-count="sdtm-transfer" />
                     <label for="project-2" class="ms-CheckBox-label">
                         <span class="ms-CheckBox-field"></span>
                         <span class="ms-CheckBox-text">SDTM Datasets Production and Validation</span>
                     </label>
-                    <!-- SDTM Data Transfer Times Input -->
-                    <div class="project-config" id="sdtm-config" style="display: none;">
-                        <label class="ms-font-s config-label">Data Transfer Times:</label>
-                        <input type="number" id="sdtm-transfer-times" class="ms-TextField-field config-input" 
-                               min="1" max="20" value="1" placeholder="e.g. 5">
+                    <!-- 动态输入框 -->
+                    <div class="count-input-container" id="sdtm-transfer-container" style="display: none;">
+                        <label class="count-label">Data Transfer Times:</label>
+                        <input type="number" id="sdtm-transfer-count" class="count-input ms-TextField-field" 
+                               min="1" max="999" placeholder="e.g. 5" />
+                        <span class="count-suffix">times</span>
                     </div>
                 </div>
                 <div class="project-option">
-                    <input type="checkbox" id="project-3" class="ms-CheckBox-input" />
+                    <input type="checkbox" id="project-3" class="ms-CheckBox-input" data-requires-count="adam-transfer" />
                     <label for="project-3" class="ms-CheckBox-label">
                         <span class="ms-CheckBox-field"></span>
                         <span class="ms-CheckBox-text">ADaM Datasets Production and Validation</span>
                     </label>
-                    <!-- ADaM Data Transfer Times Input -->
-                    <div class="project-config" id="adam-config" style="display: none;">
-                        <label class="ms-font-s config-label">Data Transfer Times:</label>
-                        <input type="number" id="adam-transfer-times" class="ms-TextField-field config-input" 
-                               min="1" max="20" value="1" placeholder="e.g. 3">
+                    <!-- 动态输入框 -->
+                    <div class="count-input-container" id="adam-transfer-container" style="display: none;">
+                        <label class="count-label">Data Transfer Times:</label>
+                        <input type="number" id="adam-transfer-count" class="count-input ms-TextField-field" 
+                               min="1" max="999" placeholder="e.g. 3" />
+                        <span class="count-suffix">times</span>
                     </div>
                 </div>
                 <div class="project-option">
@@ -96,16 +98,17 @@
                     </label>
                 </div>
                 <div class="project-option">
-                    <input type="checkbox" id="project-8" class="ms-CheckBox-input" />
+                    <input type="checkbox" id="project-8" class="ms-CheckBox-input" data-requires-count="dsur-rerun" />
                     <label for="project-8" class="ms-CheckBox-label">
                         <span class="ms-CheckBox-field"></span>
                         <span class="ms-CheckBox-text">DSUR Rerun</span>
                     </label>
-                    <!-- DSUR Rerun Times Input -->
-                    <div class="project-config" id="dsur-config" style="display: none;">
-                        <label class="ms-font-s config-label">Rerun Times:</label>
-                        <input type="number" id="dsur-rerun-times" class="ms-TextField-field config-input" 
-                               min="1" max="10" value="1" placeholder="e.g. 4">
+                    <!-- 动态输入框 -->
+                    <div class="count-input-container" id="dsur-rerun-container" style="display: none;">
+                        <label class="count-label">Rerun Times:</label>
+                        <input type="number" id="dsur-rerun-count" class="count-input ms-TextField-field" 
+                               min="1" max="999" placeholder="e.g. 4" />
+                        <span class="count-suffix">times</span>
                     </div>
                 </div>
                 <div class="project-option">
@@ -116,18 +119,24 @@
                     </label>
                 </div>
                 <div class="project-option">
-                    <input type="checkbox" id="project-10" class="ms-CheckBox-input" />
+                    <input type="checkbox" id="project-10" class="ms-CheckBox-input" data-requires-count="dsmb-rerun" />
                     <label for="project-10" class="ms-CheckBox-label">
                         <span class="ms-CheckBox-field"></span>
                         <span class="ms-CheckBox-text">DSMB Rerun</span>
                     </label>
-                    <!-- DSMB Rerun Times Input -->
-                    <div class="project-config" id="dsmb-config" style="display: none;">
-                        <label class="ms-font-s config-label">Rerun Times:</label>
-                        <input type="number" id="dsmb-rerun-times" class="ms-TextField-field config-input" 
-                               min="1" max="10" value="1" placeholder="e.g. 2">
+                    <!-- 动态输入框 -->
+                    <div class="count-input-container" id="dsmb-rerun-container" style="display: none;">
+                        <label class="count-label">Rerun Times:</label>
+                        <input type="number" id="dsmb-rerun-count" class="count-input ms-TextField-field" 
+                               min="1" max="999" placeholder="e.g. 2" />
+                        <span class="count-suffix">times</span>
                     </div>
                 </div>
+            </div>
+            
+            <!-- 自动保存提示 -->
+            <div class="auto-save-section">
+                <p class="auto-save-hint">💡 Your selection will be automatically saved when you upload a document</p>
             </div>
         </div>
         
@@ -173,7 +182,7 @@
                 </div>
             </div>
         </div>
-        
+
         <!-- SDTM Analysis Results Section -->
         <div class="sdtm-analysis-section" id="sdtm-analysis-section" style="display: none;">
             <h3 class="ms-font-l">📊 SDTM Analysis Results</h3>

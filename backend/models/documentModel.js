@@ -20,20 +20,6 @@ const DocumentSchema = new mongoose.Schema({
     default: {} 
   },
   
-  // 新增：项目选择和配置参数
-  projectSelection: {
-    selectedTasks: [{ type: String }], // 用户选中的任务列表
-    dataTransferTimes: {
-      sdtm: { type: Number, default: 0 }, // SDTM数据传输次数
-      adam: { type: Number, default: 0 }  // ADaM数据传输次数
-    },
-    rerunTimes: {
-      dsur: { type: Number, default: 0 }, // DSUR重跑次数
-      dsmb: { type: Number, default: 0 }  // DSMB重跑次数
-    },
-    configuredAt: { type: Date }
-  },
-  
   // 传统的完整文本存储（保留兼容性）
   extractedText: { type: String },
   
@@ -111,6 +97,12 @@ const DocumentSchema = new mongoose.Schema({
     tablesCount: { type: Number, default: 0 },
     parseMethod: { type: String }, // 'raw-text' or 'structured-html'
     hasAssessmentSchedule: { type: Boolean, default: false } // 是否识别出评估时间表
+  },
+  
+  // 🔥 新增：项目选择详细信息 (简化格式)
+  projectSelectionDetails: {
+    type: mongoose.Schema.Types.Mixed, // 动态存储 "项目名": 次数 的键值对
+    default: {}
   },
   
   uploadedAt: { type: Date, default: Date.now }
