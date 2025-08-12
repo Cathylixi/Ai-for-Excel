@@ -29,8 +29,21 @@
     </section>
     <main id="app-body" class="ms-welcome__main" style="display: none;">
 
-        <!-- Project Selection Section -->
-        <div class="project-selection-section">
+        <!-- Add start modal for continue/new selection -->
+        <div id="start-modal" class="start-modal" style="display:none;">
+          <div class="start-modal-content">
+            <h3 id="start-modal-title">Welcome back</h3>
+            <p id="start-modal-desc">We found unfinished studies. Continue or start a new estimate?</p>
+            <div id="incomplete-list"></div>
+            <div class="start-modal-actions">
+              <button class="ms-Button" id="start-new-btn"><span class="ms-Button-label">Start New</span></button>
+              <button class="ms-Button ms-Button--primary" id="continue-selected-btn"><span class="ms-Button-label">Continue Selected</span></button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Page 1: Project Selection Section -->
+        <div class="project-selection-section wizard-page" data-step="1">
             <h3 class="ms-font-l">🎯 Project Selection</h3>
             <p class="ms-font-s">Please select the services you need (multiple selection allowed):</p>
             <div class="project-options">
@@ -140,8 +153,8 @@
             </div>
         </div>
         
-        <!-- Protocol Upload Section -->
-        <div class="upload-section">
+        <!-- Page 2: Protocol Upload Section -->
+        <div class="upload-section wizard-page" data-step="2">
             <h3 class="ms-font-l">📋 Protocol Upload</h3>
             <div class="upload-area" id="protocol-upload-area">
             <div class="upload-content">
@@ -183,8 +196,8 @@
             </div>
         </div>
 
-        <!-- SDTM Analysis Results Section -->
-        <div class="sdtm-analysis-section" id="sdtm-analysis-section" style="display: none;">
+        <!-- Page 3: SDTM Analysis Results Section -->
+        <div class="sdtm-analysis-section wizard-page" id="sdtm-analysis-section" data-step="3" style="display: none;">
             <h3 class="ms-font-l">📊 SDTM Analysis Results</h3>
             
             <!-- Analysis Summary -->
@@ -202,6 +215,18 @@
                 <div class="domains-overview">
                     <span class="stat-label">Identified Domains:</span>
                     <div class="domains-list-overview" id="domains-list-overview"></div>
+                </div>
+                
+                <!-- High Complexity SDTM -->
+                <div class="domains-overview">
+                    <span class="stat-label">High Complexity SDTM:</span>
+                    <div class="domains-list-overview" id="high-complexity-domains"></div>
+                </div>
+                
+                <!-- Medium Complexity SDTM -->
+                <div class="domains-overview">
+                    <span class="stat-label">Medium Complexity SDTM:</span>
+                    <div class="domains-list-overview" id="medium-complexity-domains"></div>
                 </div>
             </div>
             
@@ -240,6 +265,12 @@
 
         <!-- Status Messages -->
         <div class="status-message" id="status-message"></div>
+
+        <!-- Wizard Navigation -->
+        <div class="wizard-nav">
+            <button class="ms-Button" id="wizard-back-btn"><span class="ms-Button-label">Back</span></button>
+            <button class="ms-Button ms-Button--primary" id="wizard-next-btn"><span class="ms-Button-label">Next</span></button>
+        </div>
     </main>
 </body>
 

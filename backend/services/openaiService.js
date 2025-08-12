@@ -60,7 +60,6 @@ We need tables that can be used to generate SDTM domains by mapping:
 - Demographics/baseline characteristics
 - Table of Contents, abbreviations, references
 - Pure administrative text without visit structure
-- Protocol summary information
 
 **Table Analysis:**
 - **Headers:** ${tableStructure.headers.join(', ')}
@@ -149,6 +148,68 @@ Can this table be used to create an SDTM visit schedule? Respond ONLY with JSON:
   }
 }
 
+// ⬇️ 新增：AI 提取 Study Number（带正则兜底）
+async function extractStudyNumber(fullText) {
+  try {
+    if (!fullText || typeof fullText !== 'string') return null;
+
+    // 优先截取前面的文本（通常编号在首页/前几页）
+    const head = fullText.slice(0, 4000);
+
+    const prompt = `You are a clinical protocol expert. Extract the unique study protocol identifier ("Study Number" / "Protocol Number") from the following text. 
+- It is usually an alphanumeric code like "SPI-GCF-301-PK".
+- Ignore IND numbers, drug codes, version numbers, dates.
+- If multiple candidates exist, pick the most likely global protocol identifier.
+- Return ONLY strict JSON: {"studyNumber": "<value>"}. If not found, return {"studyNumber":"N/A"}.
+
+TEXT:
+${head}`;
+
+    const resp = await openai.chat.completions.create({
+      model: 'gpt-4',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.1,
+      max_tokens: 50
+    });
+
+    const content = (resp.choices?.[0]?.message?.content || '').trim();
+    let studyNumber = null;
+    try {
+      const json = JSON.parse(content);
+      studyNumber = (json && json.studyNumber) ? String(json.studyNumber).trim() : null;
+    } catch (e) {
+      // 如果不是纯JSON，尝试提取花括号内JSON
+      const start = content.indexOf('{');
+      const end = content.lastIndexOf('}');
+      if (start >= 0 && end > start) {
+        const json = JSON.parse(content.slice(start, end + 1));
+        studyNumber = (json && json.studyNumber) ? String(json.studyNumber).trim() : null;
+      }
+    }
+
+    // 兜底：正则基于常见行
+    if (!studyNumber || studyNumber === 'N/A') {
+      const lines = head.split(/\n|\r/);
+      const candidates = [];
+      for (const line of lines) {
+        const t = line.trim();
+        if (!t) continue;
+        if (/study\s*(number|no\.)/i.test(t) || /protocol\s*(number|no\.)/i.test(t) || /protocol:\s*/i.test(t)) {
+          const m = t.match(/([A-Z]{2,}[A-Z0-9\-]{2,})/i);
+          if (m && m[1]) candidates.push(m[1]);
+        }
+      }
+      if (candidates.length > 0) studyNumber = candidates[0];
+    }
+
+    return studyNumber || null;
+  } catch (err) {
+    console.warn('提取Study Number失败:', err.message);
+    return null;
+  }
+}
+
 module.exports = {
-  identifyAssessmentScheduleWithAI
+  identifyAssessmentScheduleWithAI,
+  extractStudyNumber
 }; 

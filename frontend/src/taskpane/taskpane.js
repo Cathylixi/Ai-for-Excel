@@ -11,15 +11,212 @@ const API_BASE_URL = 'https://localhost:4000';
 // 全局变量
 let uploadedProtocol = null;
 
+// Wizard state
+let currentWizardStep = 1; // 1: Project Selection, 2: Upload, 3: SDTM
+
+function initWizard() {
+  const backBtn = document.getElementById('wizard-back-btn');
+  const nextBtn = document.getElementById('wizard-next-btn');
+  backBtn.addEventListener('click', async () => {
+    if (currentWizardStep > 1) {
+      showStep(currentWizardStep - 1);
+    }
+  });
+  nextBtn.addEventListener('click', async () => {
+    await handleNext();
+  });
+  showStep(currentWizardStep);
+}
+
+function showStep(step) {
+  currentWizardStep = step;
+  const pages = document.querySelectorAll('.wizard-page');
+  pages.forEach(p => {
+    const s = Number(p.getAttribute('data-step'));
+    p.style.display = (s === step) ? 'block' : 'none';
+  });
+  // 按钮可用性
+  const backBtn = document.getElementById('wizard-back-btn');
+  const nextBtn = document.getElementById('wizard-next-btn');
+  backBtn.disabled = (step === 1);
+  nextBtn.disabled = false;
+  // Next 按钮文案
+  nextBtn.querySelector('.ms-Button-label').textContent = (step === 3) ? 'Done' : 'Next';
+}
+
+async function handleNext() {
+  if (currentWizardStep === 1) {
+    const { projectSelectionDetails } = collectProjectSelectionDetails();
+    if (window.currentDocumentId) {
+      try { await saveProjectSelectionDetails(); } catch (e) { console.warn('保存项目选择失败但不阻塞进入下一步:', e); }
+    }
+    showStep(2);
+    return;
+  }
+  if (currentWizardStep === 2) {
+    if (!window.currentDocumentId) {
+      showStatusMessage('Please upload a protocol document before proceeding.', 'error');
+      return;
+    }
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/content`);
+      if (response.ok) {
+        const docData = await response.json();
+        const sdtmData = docData?.document?.sdtmData;
+        if (sdtmData) {
+          const hasValidConfirmed = !!(sdtmData.confirmed && sdtmData.confirmed.summary && (
+            (typeof sdtmData.confirmed.summary.total_sdtm_domains === 'number' && sdtmData.confirmed.summary.total_sdtm_domains > 0) ||
+            (Array.isArray(sdtmData.confirmed.summary.unique_domains) && sdtmData.confirmed.summary.unique_domains.length > 0)
+          ));
+          const source = hasValidConfirmed ? sdtmData.confirmed : sdtmData.original;
+          if (source && source.procedures) {
+            displaySDTMAnalysis(source);
+          }
+        }
+      }
+    } catch (e) { console.warn('进入Step3前获取SDTM失败:', e); }
+    showStep(3);
+    return;
+  }
+  if (currentWizardStep === 3) {
+    // 点击 Done：标记数据库 isCostEstimate = true
+    if (!window.currentDocumentId) {
+      showStatusMessage('Missing document id. Please upload again.', 'error');
+      return;
+    }
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/mark-complete`, { method: 'PATCH' });
+      const result = await resp.json();
+      if (result?.success) {
+        showStatusMessage('Marked as completed. You can close the pane.', 'success');
+      } else {
+        showStatusMessage('Failed to mark as completed: ' + (result?.message || ''), 'error');
+      }
+    } catch (err) {
+      showStatusMessage('Failed to mark as completed: ' + err.message, 'error');
+    }
+  }
+}
+
+// 初始化时调用
+(function attachWizardInit(){
+  const origOnReady = Office.onReady;
+  // 在 Office.onReady 的回调中调用 initWizard（文件上方已有 Office.onReady，我们直接在其内部也调用即可）
+})();
+
+async function checkAndOfferResume() {
+  try {
+    // 1) 若已绑定 documentId，优先直接恢复
+    const savedDocumentId = await loadDocumentIdFromSettings();
+    if (savedDocumentId) {
+      await restoreApplicationState(savedDocumentId);
+      return; // 已绑定则无需弹窗
+    }
+
+    // 2) 拉取未完成列表
+    const resp = await fetch(`${API_BASE_URL}/api/documents/incomplete-estimates`);
+    const data = await resp.json();
+    const list = Array.isArray(data?.data) ? data.data : [];
+
+    // 3) 准备弹窗元素
+    const modal = document.getElementById('start-modal');
+    const listEl = document.getElementById('incomplete-list');
+    const btnNew = document.getElementById('start-new-btn');
+    const btnContinue = document.getElementById('continue-selected-btn');
+    const titleEl = document.getElementById('start-modal-title');
+    const descEl = document.getElementById('start-modal-desc');
+
+    let selectedId = null;
+
+    // 4) 根据是否有未完成项调整文案与按钮
+    if (list.length > 0) {
+      titleEl.textContent = 'Welcome back';
+      descEl.textContent = 'We found unfinished studies. Continue or start a new estimate?';
+      btnContinue.style.display = '';
+      btnContinue.setAttribute('disabled', 'true');
+      listEl.classList.add('has-items');
+      listEl.innerHTML = '';
+      list.forEach(doc => {
+        const div = document.createElement('div');
+        div.className = 'item';
+        const title = (doc.studyNumber && doc.studyNumber !== 'N/A') ? doc.studyNumber : '(No Study Number)';
+        const subtitle = doc.originalName || '';
+        const uploaded = doc.uploadedAt ? new Date(doc.uploadedAt).toLocaleString() : '';
+        div.innerHTML = `
+          <div class="check"></div>
+          <div class="info">
+            <div class="title">${title}</div>
+            <div class="subtitle">${subtitle}</div>
+            <div class="meta">Uploaded: ${uploaded}</div>
+          </div>
+        `;
+        div.addEventListener('click', () => {
+          Array.from(listEl.children).forEach(c => c.classList.remove('selected'));
+          div.classList.add('selected');
+          selectedId = doc._id;
+          btnContinue.removeAttribute('disabled');
+        });
+        listEl.appendChild(div);
+      });
+    } else {
+      titleEl.textContent = 'Start a New Cost Estimate?';
+      descEl.textContent = 'No unfinished studies found. Would you like to start a new one?';
+      btnContinue.style.display = 'none';
+      listEl.classList.remove('has-items');
+      listEl.innerHTML = '';
+    }
+
+    // 5) 显示弹窗并绑定按钮
+    modal.style.display = 'flex';
+
+    btnNew.onclick = () => {
+      modal.style.display = 'none';
+      showStep(1); // 新开
+    };
+    btnContinue.onclick = async () => {
+      if (!selectedId) { showStatusMessage('Please select a study to continue.', 'error'); return; }
+      modal.style.display = 'none';
+      await saveDocumentIdToSettings(selectedId);
+      await restoreApplicationState(selectedId);
+      showStep(3);
+    };
+  } catch (err) {
+    console.warn('启动时检查未完成列表失败:', err);
+    // 兜底：失败时也给用户开始新建的选择
+    try {
+      const modal = document.getElementById('start-modal');
+      const listEl = document.getElementById('incomplete-list');
+      const btnNew = document.getElementById('start-new-btn');
+      const btnContinue = document.getElementById('continue-selected-btn');
+      const titleEl = document.getElementById('start-modal-title');
+      const descEl = document.getElementById('start-modal-desc');
+      titleEl.textContent = 'Start a New Cost Estimate?';
+      descEl.textContent = 'We could not check unfinished studies. You can still start a new one.';
+      btnContinue.style.display = 'none';
+      listEl.classList.remove('has-items');
+      listEl.innerHTML = '';
+      modal.style.display = 'flex';
+      btnNew.onclick = () => { modal.style.display = 'none'; showStep(1); };
+    } catch (_) {}
+  }
+}
+
+// 在 Office.onReady 中，初始化后调用
 Office.onReady(async (info) => {
   if (info.host === Office.HostType.Excel) {
     document.getElementById("sideload-msg").style.display = "none";
     document.getElementById("app-body").style.display = "flex";
     
+    // 初始化向导
+    initWizard();
+    
     // 初始化文件上传功能
     initFileUpload();
     
-    // 🔄 检查并恢复之前的状态
+    // 启动检查：是否存在未完成的study，并提供继续/新开选项
+    await checkAndOfferResume();
+    
+    // 🔄 检查并恢复之前的状态（保留现有逻辑作为兜底，不影响上面的 resume）
     try {
       const savedDocumentId = await loadDocumentIdFromSettings();
       if (savedDocumentId) {
@@ -332,6 +529,7 @@ async function restoreApplicationState(documentId) {
       const sdtmData = document.sdtmData.confirmed || document.sdtmData.original;
       if (sdtmData && sdtmData.procedures) {
         currentSDTMData = {
+          success: true, // 确保 success 为 true
           procedures: sdtmData.procedures,
           mappings: sdtmData.mappings || [],
           summary: sdtmData.summary || {}
@@ -422,8 +620,14 @@ let selectedProcedureIndex = 0;
 function displaySDTMAnalysis(sdtmAnalysis) {
   console.log('显示SDTM分析结果:', sdtmAnalysis);
   
-  // 存储当前数据
+  // 存储当前数据，并确保 success 有合理的默认
+  const inferredSuccess = (sdtmAnalysis && (
+    sdtmAnalysis.success === true ||
+    (sdtmAnalysis.success === undefined && Array.isArray(sdtmAnalysis.procedures) && sdtmAnalysis.procedures.length > 0)
+  ));
+
   currentSDTMData = {
+    success: inferredSuccess === true,
     procedures: [...(sdtmAnalysis.procedures || [])],
     mappings: [...(sdtmAnalysis.mappings || [])],
     summary: { ...(sdtmAnalysis.summary || {}) }
@@ -437,17 +641,23 @@ function displaySDTMAnalysis(sdtmAnalysis) {
   // 显示SDTM分析区域
   sdtmSection.style.display = 'block';
   
-  if (sdtmAnalysis.success) {
+  const isOk = currentSDTMData.success === true;
+  if (isOk) {
     // 显示成功状态
     sdtmStatus.style.display = 'block';
     sdtmStatus.className = 'sdtm-status success';
     sdtmStatusText.textContent = 'SDTM analysis completed successfully - Please review and confirm';
     
-    // 🔥 修复：立即重新计算正确的去重统计数据
+    // 重新计算正确的去重统计数据
     updateSummaryStats();
     
     // 显示主要的编辑界面
-    if (sdtmAnalysis.mappings && sdtmAnalysis.mappings.length > 0) {
+    if (currentSDTMData.mappings && currentSDTMData.mappings.length > 0) {
+      sdtmMappingsContainer.style.display = 'block';
+      displayFlatMappingsList(currentSDTMData);
+      setupSDTMEventListeners();
+  } else {
+      // 即便没有 mappings，也应显示所有 procedures 的可编辑空行
       sdtmMappingsContainer.style.display = 'block';
       displayFlatMappingsList(currentSDTMData);
       setupSDTMEventListeners();
@@ -477,6 +687,32 @@ function updateSummaryAndDomainOverview(summary) {
       domainTag.className = 'domain-overview-tag';
       domainTag.textContent = domain;
       domainsOverview.appendChild(domainTag);
+    });
+  }
+  
+  // 更新高复杂度SDTM
+  const highComplexityOverview = document.getElementById('high-complexity-domains');
+  highComplexityOverview.innerHTML = '';
+  
+  if (summary.highComplexitySdtm && summary.highComplexitySdtm.domains && summary.highComplexitySdtm.domains.length > 0) {
+    summary.highComplexitySdtm.domains.forEach(domain => {
+      const domainTag = document.createElement('span');
+      domainTag.className = 'domain-overview-tag';
+      domainTag.textContent = domain;
+      highComplexityOverview.appendChild(domainTag);
+    });
+  }
+  
+  // 更新中复杂度SDTM
+  const mediumComplexityOverview = document.getElementById('medium-complexity-domains');
+  mediumComplexityOverview.innerHTML = '';
+  
+  if (summary.mediumComplexitySdtm && summary.mediumComplexitySdtm.domains && summary.mediumComplexitySdtm.domains.length > 0) {
+    summary.mediumComplexitySdtm.domains.forEach(domain => {
+      const domainTag = document.createElement('span');
+      domainTag.className = 'domain-overview-tag';
+      domainTag.textContent = domain;
+      mediumComplexityOverview.appendChild(domainTag);
     });
   }
 }
@@ -731,33 +967,55 @@ function toggleEditMode() {
 
 // 更新统计数据
 function updateSummaryStats() {
-  // 重新计算所有唯一的domains
-  const allDomains = new Set();
-  let totalMappings = 0;
-  
-  currentSDTMData.mappings.forEach(mapping => {
-    if (mapping.sdtm_domains && mapping.sdtm_domains.length > 0) {
-      mapping.sdtm_domains.forEach(domain => {
-        if (domain.trim()) {
-          allDomains.add(domain.trim());
+  // 基于域做去重，并按“High 优先级”归类，确保互斥
+  const domainToComplexity = new Map(); // domain -> 'High' | 'Medium'
+
+  if (Array.isArray(currentSDTMData.mappings)) {
+    currentSDTMData.mappings.forEach(mapping => {
+      const complexity = mapping && mapping.complexity === 'High' ? 'High' : 'Medium';
+      const domains = Array.isArray(mapping?.sdtm_domains) ? mapping.sdtm_domains : [];
+      domains.forEach(d => {
+        const domain = (d || '').trim();
+        if (!domain) return;
+        const existing = domainToComplexity.get(domain);
+        if (!existing) {
+          domainToComplexity.set(domain, complexity);
+        } else if (existing === 'Medium' && complexity === 'High') {
+          // High 覆盖 Medium，保证互斥集合
+          domainToComplexity.set(domain, 'High');
         }
       });
-      totalMappings += mapping.sdtm_domains.length;
-    }
-  });
-  
+    });
+  }
+
+  const allDomains = Array.from(domainToComplexity.keys());
+  const highDomains = allDomains.filter(d => domainToComplexity.get(d) === 'High');
+  const mediumDomains = allDomains.filter(d => domainToComplexity.get(d) === 'Medium');
+
   // 更新summary对象 - 🔥 确保procedures数量是真实的
   currentSDTMData.summary.total_procedures = currentSDTMData.procedures ? currentSDTMData.procedures.length : 0;
-  currentSDTMData.summary.unique_domains = Array.from(allDomains);
-  currentSDTMData.summary.total_sdtm_domains = allDomains.size;
-  
+  currentSDTMData.summary.unique_domains = allDomains;
+  currentSDTMData.summary.total_sdtm_domains = allDomains.length;
+
+  // 更新复杂度统计（互斥）
+  currentSDTMData.summary.highComplexitySdtm = {
+    count: highDomains.length,
+    domains: highDomains
+  };
+  currentSDTMData.summary.mediumComplexitySdtm = {
+    count: mediumDomains.length,
+    domains: mediumDomains
+  };
+
   // 更新显示
   updateSummaryAndDomainOverview(currentSDTMData.summary);
-  
+
   console.log('统计数据已更新:', {
     total_procedures: currentSDTMData.summary.total_procedures,
-    total_sdtm_domains: allDomains.size,
-    unique_domains: Array.from(allDomains)
+    total_sdtm_domains: currentSDTMData.summary.total_sdtm_domains,
+    unique_domains: currentSDTMData.summary.unique_domains,
+    highComplexitySdtm: currentSDTMData.summary.highComplexitySdtm,
+    mediumComplexitySdtm: currentSDTMData.summary.mediumComplexitySdtm
   });
 }
 
@@ -765,6 +1023,10 @@ function updateSummaryStats() {
 async function confirmSDTMAnalysis() {
   if (!window.currentDocumentId) {
     alert('No document ID found. Please re-upload the document.');
+    return;
+  }
+  if (!currentSDTMData || !Array.isArray(currentSDTMData.procedures)) {
+    showStatusMessage('No SDTM data to confirm.', 'error');
     return;
   }
   
@@ -777,9 +1039,9 @@ async function confirmSDTMAnalysis() {
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        procedures: currentSDTMData.procedures,
-        mappings: currentSDTMData.mappings,
-        summary: currentSDTMData.summary
+        procedures: currentSDTMData.procedures || [],
+        mappings: currentSDTMData.mappings || [],
+        summary: currentSDTMData.summary || {}
       })
     });
     
@@ -801,6 +1063,40 @@ async function confirmSDTMAnalysis() {
       if (confirmBtn) confirmBtn.style.display = 'none';
       
       showStatusMessage('SDTM analysis confirmed and saved successfully!', 'success');
+
+      // ⬇️ 根据返回的成本估算快照，填入Excel中的 Unit 与 Estimated cost
+      const costEstimate = result?.data?.costEstimate;
+      let sdtmDataForNotes = null;
+      if (costEstimate && costEstimate['SDTM Datasets Production and Validation']) {
+        await applySDTMUnitsAndCostsToExcel(costEstimate['SDTM Datasets Production and Validation']);
+      }
+
+      // 兜底拉取文档（用于 Notes 的域列表写入）
+      try {
+        const docResp = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/content`);
+        if (docResp.ok) {
+          const docData = await docResp.json();
+          const snapshot = docData?.document?.costEstimate?.['SDTM Datasets Production and Validation'];
+          if (!costEstimate && snapshot) {
+            await applySDTMUnitsAndCostsToExcel(snapshot);
+          }
+          const sdtmData = docData?.document?.sdtmData;
+          if (sdtmData) {
+            const hasValidConfirmed = !!(sdtmData.confirmed && sdtmData.confirmed.summary && (
+              (typeof sdtmData.confirmed.summary.total_sdtm_domains === 'number' && sdtmData.confirmed.summary.total_sdtm_domains > 0) ||
+              (Array.isArray(sdtmData.confirmed.summary.unique_domains) && sdtmData.confirmed.summary.unique_domains.length > 0)
+            ));
+            sdtmDataForNotes = hasValidConfirmed ? sdtmData.confirmed : sdtmData.original;
+          }
+        }
+      } catch (e) {
+        console.warn('无法获取文档用于写入Notes:', e);
+      }
+
+      if (sdtmDataForNotes) {
+        await applySDTMNotesToExcel(sdtmDataForNotes);
+      }
+
     } else {
       console.error('确认失败:', result.message);
       showStatusMessage('Failed to confirm SDTM analysis: ' + result.message, 'error');
@@ -809,6 +1105,125 @@ async function confirmSDTMAnalysis() {
   } catch (error) {
     console.error('确认请求失败:', error);
     showStatusMessage('Network error: Failed to confirm SDTM analysis', 'error');
+  }
+}
+
+// ⬇️ 新增：将SDTM的 units 和 estimatedCosts 写入Excel相应行
+async function applySDTMUnitsAndCostsToExcel(snapshot) {
+  const taskToKey = {
+    'SDTM Annotated CRFs (aCRF)': 'annotatedCrf',
+    'SDTM Dataset Specs (High Complexity)': 'specsHigh',
+    'SDTM Dataset Specs (Medium Complexity)': 'specsMedium',
+    'SDTM Production and Validation: Programs and Datasets (High Complexity)': 'prodHigh',
+    'SDTM Production and Validation: Programs and Datasets (Medium Complexity)': 'prodMedium',
+    'SDTM Pinnacle 21 Report Creation and Review': 'pinnacle21',
+    "SDTM Reviewer's Guide": 'reviewersGuide',
+    'SDTM Define.xml': 'defineXml',
+    'SDTM Dataset File xpt Conversion and Review': 'xptConversion'
+  };
+
+  try {
+    await Excel.run(async (context) => {
+      const sheet = context.workbook.worksheets.getActiveWorksheet();
+      const used = sheet.getUsedRange();
+      used.load(['values', 'rowIndex', 'columnIndex']);
+      await context.sync();
+
+      const startRow = used.rowIndex || 0;
+      const startCol = used.columnIndex || 0;
+      const rows = used.values;
+      const units = snapshot.units || {};
+      const costs = snapshot.estimatedCosts || {};
+      const subtotal = snapshot.subtotal ?? null;
+
+      // 写每个子项的 Unit/F
+      for (let r = 0; r < rows.length; r++) {
+        const task = String(rows[r][0] || '').trim();
+        if (!taskToKey.hasOwnProperty(task)) continue;
+        const key = taskToKey[task];
+        const unitVal = units[key] ?? '';
+        const costVal = costs[key] ?? '';
+
+        const unitCell = sheet.getRangeByIndexes(startRow + r, startCol + 1, 1, 1); // B
+        const estCostCell = sheet.getRangeByIndexes(startRow + r, startCol + 5, 1, 1); // F
+        unitCell.values = [[unitVal === '' ? '' : Number(unitVal)]];
+        unitCell.format.horizontalAlignment = 'Right';
+        estCostCell.values = [[costVal === '' ? '' : `$${Number(costVal)}`]];
+        estCostCell.format.horizontalAlignment = 'Right';
+      }
+
+      // 定位SDTM主块后的Subtotal行，并写入小计
+      if (subtotal !== null) {
+        // 找到SDTM主标题行
+        let sdtmStartRow = -1;
+        for (let r = 0; r < rows.length; r++) {
+          const task = String(rows[r][0] || '').trim();
+          if (task.toLowerCase() === 'sdtm datasets production and validation') {
+            sdtmStartRow = r;
+            break;
+          }
+        }
+        if (sdtmStartRow >= 0) {
+          // 向下寻找第一个值为 'Subtotal' 的行
+          for (let r = sdtmStartRow + 1; r < rows.length; r++) {
+            const firstCell = String(rows[r][0] || '').trim();
+            if (firstCell.toLowerCase() === 'subtotal') {
+              const subtotalCell = sheet.getRangeByIndexes(startRow + r, startCol + 5, 1, 1); // F
+              subtotalCell.values = [[`$${Number(subtotal)}`]];
+              subtotalCell.format.horizontalAlignment = 'Right';
+              break;
+            }
+          }
+        }
+      }
+
+      await context.sync();
+      showStatusMessage('Units, estimated costs and subtotal applied from confirmed SDTM data.', 'success');
+    });
+  } catch (err) {
+    console.error('写入Excel的SDTM单元与成本失败:', err);
+    showStatusMessage('Failed to write units/costs/subtotal to Excel: ' + err.message, 'error');
+  }
+}
+
+// ⬇️ 写入 SDTM Notes（来自数据库的域列表）
+async function applySDTMNotesToExcel(sdtmInfo) {
+  try {
+    const highDomains = sdtmInfo?.summary?.highComplexitySdtm?.domains || [];
+    const mediumDomains = sdtmInfo?.summary?.mediumComplexitySdtm?.domains || [];
+    const allDomains = sdtmInfo?.summary?.unique_domains || [];
+
+    const notesMap = {
+      'SDTM Dataset Specs (High Complexity)': highDomains.join('/'),
+      'SDTM Dataset Specs (Medium Complexity)': mediumDomains.join('/'),
+      'SDTM Dataset File xpt Conversion and Review': allDomains.join('/'),
+    };
+
+    await Excel.run(async (context) => {
+      const sheet = context.workbook.worksheets.getActiveWorksheet();
+      const used = sheet.getUsedRange();
+      used.load(['values', 'rowIndex', 'columnIndex']);
+      await context.sync();
+
+      const startRow = used.rowIndex || 0;
+      const startCol = used.columnIndex || 0;
+      const rows = used.values;
+
+      for (let r = 0; r < rows.length; r++) {
+        const task = String(rows[r][0] || '').trim();
+        if (!(task in notesMap)) continue;
+        const note = notesMap[task] || '';
+        const noteCell = sheet.getRangeByIndexes(startRow + r, startCol + 6, 1, 1); // 列G Notes
+        noteCell.values = [[note]];
+        noteCell.format.horizontalAlignment = 'Left';
+      }
+
+      await context.sync();
+      showStatusMessage('Notes updated from SDTM confirmed data.', 'success');
+    });
+  } catch (err) {
+    console.error('写入SDTM Notes失败:', err);
+    showStatusMessage('Failed to write SDTM notes: ' + err.message, 'error');
   }
 }
 
@@ -882,7 +1297,7 @@ async function createStandardCostAnalysisHeaders() {
   }
 }
 
-// 🔥 新增：根据项目选择填写Excel任务列表
+// 🔥 新增：根据项目选择填写Excel任务列表（上传时仅生成框架，不写Unit/Estimated cost）
 async function populateExcelWithSelectedProjects() {
   try {
     // 从MongoDB获取已保存的项目选择详情和SDTM数据
@@ -896,10 +1311,14 @@ async function populateExcelWithSelectedProjects() {
           if (docData.document && docData.document.projectSelectionDetails) {
             savedProjectDetails = docData.document.projectSelectionDetails;
           }
-          // 获取SDTM数据
+          // 获取SDTM数据（此处仅用于展示，不用于写Unit）
           if (docData.document && docData.document.sdtmData) {
-            // 优先使用用户确认的SDTM数据，其次使用原始AI分析结果
-            sdtmInfo = docData.document.sdtmData.confirmed || docData.document.sdtmData.original;
+            const sdtmData = docData.document.sdtmData;
+            const hasValidConfirmed = !!(sdtmData.confirmed && sdtmData.confirmed.summary && (
+              (typeof sdtmData.confirmed.summary.total_sdtm_domains === 'number' && sdtmData.confirmed.summary.total_sdtm_domains > 0) ||
+              (Array.isArray(sdtmData.confirmed.summary.unique_domains) && sdtmData.confirmed.summary.unique_domains.length > 0)
+            ));
+            sdtmInfo = hasValidConfirmed ? sdtmData.confirmed : sdtmData.original;
           }
         }
       } catch (error) {
@@ -907,238 +1326,175 @@ async function populateExcelWithSelectedProjects() {
       }
     }
     
-    // 如果没有从数据库获取到，则使用当前表单数据
-            if (Object.keys(savedProjectDetails).length === 0) {
-          const { projectSelectionDetails } = collectProjectSelectionDetails();
-          savedProjectDetails = projectSelectionDetails;
-        }
+    if (Object.keys(savedProjectDetails).length === 0) {
+      const { projectSelectionDetails } = collectProjectSelectionDetails();
+      savedProjectDetails = projectSelectionDetails;
+    }
 
-        // 生成SDTM信息字符串
-        let sdtmNotesText = "";
-        // 🔥 修复：优先使用数据库数据，其次使用当前SDTM数据
-        const sdtmSource = sdtmInfo || currentSDTMData;
-        if (sdtmSource && sdtmSource.summary) {
-          const totalSDTM = sdtmSource.summary.total_procedures || 0;
-          const domains = sdtmSource.summary.unique_domains || [];
-          sdtmNotesText = `total number of SDTM: ${totalSDTM}; SDTM categories: ${domains.join('/')}`;
-        }
+    const highComplexityCount = sdtmInfo?.summary?.highComplexitySdtm?.count || 0;
+    const mediumComplexityCount = sdtmInfo?.summary?.mediumComplexitySdtm?.count || 0;
+    const totalDomainsCount = sdtmInfo?.summary?.total_sdtm_domains || 0;
 
-        await Excel.run(async (context) => {
+    await Excel.run(async (context) => {
       const worksheet = context.workbook.worksheets.getActiveWorksheet();
-      
-      let currentRow = 2; // 从第2行开始（第1行是表头）
-      
-      // 第一部分：用户选择的项目
+      let currentRow = 2;
+
       if (Object.keys(savedProjectDetails).length > 0) {
         for (const [projectName, count] of Object.entries(savedProjectDetails)) {
-          // 跳过 lastUpdated 字段
           if (projectName === 'lastUpdated') continue;
-          
-          // 根据项目类型确定处理方式
+
           const isSDTM = projectName.toLowerCase().includes("sdtm");
           const isADAM = projectName.toLowerCase().includes("adam");
           const isDSUR = projectName.toLowerCase().includes("dsur");
           const isDSMB = projectName.toLowerCase().includes("dsmb");
           const isStatisticalAnalysisPlan = projectName.toLowerCase().includes("statistical analysis plan");
-          
+
           if (isSDTM || isADAM || isStatisticalAnalysisPlan) {
-            // SDTM/ADAM/SAP: 主项目 + 详细子项目 + subtotal + (仅SDTM/ADAM: Transfer + Transfer详细子项目 + subtotal)
-            
-            // 1. 添加主项目名称行（只填写项目名称，其他列为空）
             const projectNameRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
             projectNameRange.values = [[projectName, "", "", "", "", "", ""]];
-            projectNameRange.format.font.bold = true; // 主项目名称要加粗
+            projectNameRange.format.font.bold = true;
             projectNameRange.format.horizontalAlignment = "Left";
             currentRow++;
-            
-            // 2. 添加主项目的详细子项目
+
             if (isSDTM) {
               const sdtmSubItems = [
-                { name: "SDTM Annotated CRFs (aCRF)", unit: 1, costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0, estimatedCost: 32.0 },
-                { name: "SDTM Dataset Specs (High Complexity)", unit: 5, costPerHour: 1.0, hoursPerUnit: 3, costPerUnit: 3.0, estimatedCost: 15.0 },
-                { name: "SDTM Dataset Specs (Medium Complexity)", unit: 20, costPerHour: 1.0, hoursPerUnit: 2, costPerUnit: 2.0, estimatedCost: 40.0 },
-                { name: "SDTM Production and Validation: Programs and Datasets (High Complexity)", unit: 5, costPerHour: 1.0, hoursPerUnit: 16, costPerUnit: 16.0, estimatedCost: 80.0 },
-                { name: "SDTM Production and Validation: Programs and Datasets (Medium Complexity)", unit: 20, costPerHour: 1.0, hoursPerUnit: 10, costPerUnit: 10.0, estimatedCost: 200.0 },
-                { name: "SDTM Pinnacle 21 Report Creation and Review", unit: 2, costPerHour: 1.0, hoursPerUnit: 6, costPerUnit: 6.0, estimatedCost: 12.0 },
-                { name: "SDTM Reviewer's Guide", unit: 1, costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0, estimatedCost: 32.0 },
-                { name: "SDTM Define.xml", unit: 1, costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0, estimatedCost: 32.0 },
-                { name: "SDTM Dataset File xpt Conversion and Review", unit: 25, costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2, estimatedCost: 5.0 }
+                { name: "SDTM Annotated CRFs (aCRF)", unit: "", costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0 },
+                { name: "SDTM Dataset Specs (High Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 3, costPerUnit: 3.0 },
+                { name: "SDTM Dataset Specs (Medium Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 2, costPerUnit: 2.0 },
+                { name: "SDTM Production and Validation: Programs and Datasets (High Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 16, costPerUnit: 16.0 },
+                { name: "SDTM Production and Validation: Programs and Datasets (Medium Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 10, costPerUnit: 10.0 },
+                { name: "SDTM Pinnacle 21 Report Creation and Review", unit: "", costPerHour: 1.0, hoursPerUnit: 6, costPerUnit: 6.0 },
+                { name: "SDTM Reviewer's Guide", unit: "", costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0 },
+                { name: "SDTM Define.xml", unit: "", costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0 },
+                { name: "SDTM Dataset File xpt Conversion and Review", unit: "", costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2 }
               ];
-              
+
               for (const subItem of sdtmSubItems) {
-                // 为"SDTM Dataset Specs (High Complexity)"添加SDTM信息到Notes列
-                let notesText = "";
-                if (subItem.name === "SDTM Dataset Specs (High Complexity)" && sdtmNotesText) {
-                  notesText = sdtmNotesText;
-                }
-                
                 const subItemRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
                 subItemRange.values = [[
                   subItem.name,
-                  "", // Unit列不填写
+                  "", // Unit 留空，待确认后填入
                   `$${subItem.costPerHour}`,
                   subItem.hoursPerUnit,
                   `$${subItem.costPerUnit}`,
-                  "", // Estimated Cost列不填写
-                  notesText // Notes列：SDTM信息
+                  "", // Estimated Cost 留空
+                  ""
                 ]];
-                subItemRange.format.font.bold = false; // 不加粗
+                subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
-                // 数字列右对齐
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
                 numberColumns.format.horizontalAlignment = "Right";
                 currentRow++;
               }
             } else if (isADAM) {
+              // ADAM 保持原有占位（Unit 留空）
               const adamSubItems = [
-                { name: "ADaM Dataset Specs (High Complexity)", unit: 5, costPerHour: 1.0, hoursPerUnit: 3, costPerUnit: 3.0, estimatedCost: 15.0 },
-                { name: "ADaM Dataset Specs (Medium Complexity)", unit: 10, costPerHour: 1.0, hoursPerUnit: 2, costPerUnit: 2.0, estimatedCost: 20.0 },
-                { name: "ADaM Production and Validation: Programs and Datasets (High Complexity)", unit: 5, costPerHour: 1.0, hoursPerUnit: 18, costPerUnit: 18.0, estimatedCost: 90.0 },
-                { name: "ADaM Production and Validation: Programs and Datasets (Medium Complexity)", unit: 10, costPerHour: 1.0, hoursPerUnit: 10, costPerUnit: 10.0, estimatedCost: 100.0 },
-                { name: "ADaM Pinnacle 21 Report Creation and Review", unit: 1, costPerHour: 1.0, hoursPerUnit: 4, costPerUnit: 4.0, estimatedCost: 4.0 },
-                { name: "ADaM Reviewer's Guide", unit: 1, costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0, estimatedCost: 32.0 },
-                { name: "ADaM Define.xml", unit: 1, costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0, estimatedCost: 32.0 },
-                { name: "ADaM Dataset Program xpt Conversion and Review", unit: 15, costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2, estimatedCost: 3.0 },
-                { name: "ADaM Program txt Conversion and Review", unit: 15, costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2, estimatedCost: 3.0 }
+                { name: "ADaM Dataset Specs (High Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 3, costPerUnit: 3.0 },
+                { name: "ADaM Dataset Specs (Medium Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 2, costPerUnit: 2.0 },
+                { name: "ADaM Production and Validation: Programs and Datasets (High Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 18, costPerUnit: 18.0 },
+                { name: "ADaM Production and Validation: Programs and Datasets (Medium Complexity)", unit: "", costPerHour: 1.0, hoursPerUnit: 10, costPerUnit: 10.0 },
+                { name: "ADaM Pinnacle 21 Report Creation and Review", unit: "", costPerHour: 1.0, hoursPerUnit: 4, costPerUnit: 4.0 },
+                { name: "ADaM Reviewer's Guide", unit: "", costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0 },
+                { name: "ADaM Define.xml", unit: "", costPerHour: 1.0, hoursPerUnit: 32, costPerUnit: 32.0 },
+                { name: "ADaM Dataset Program xpt Conversion and Review", unit: "", costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2 },
+                { name: "ADaM Program txt Conversion and Review", unit: "", costPerHour: 1.0, hoursPerUnit: 0.2, costPerUnit: 0.2 }
               ];
-              
+
               for (const subItem of adamSubItems) {
                 const subItemRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
                 subItemRange.values = [[
                   subItem.name,
-                  "", // Unit列不填写
+                  "",
                   `$${subItem.costPerHour}`,
                   subItem.hoursPerUnit,
                   `$${subItem.costPerUnit}`,
-                  "", // Estimated Cost列不填写
-                  "" // Notes列为空
+                  "",
+                  ""
                 ]];
-                subItemRange.format.font.bold = false; // 不加粗
+                subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
-                // 数字列右对齐
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
                 numberColumns.format.horizontalAlignment = "Right";
                 currentRow++;
               }
             } else if (isStatisticalAnalysisPlan) {
-              // Statistical Analysis Plan的子项目
               const sapSubItems = [
-                { name: "Statistical Analysis Plan Draft 1", unit: 1, costPerHour: 1.0, hoursPerUnit: 40, costPerUnit: 40.0, estimatedCost: 40.0 },
-                { name: "Statistical Analysis Plan Draft 2", unit: 1, costPerHour: 1.0, hoursPerUnit: 30, costPerUnit: 30.0, estimatedCost: 30.0 },
-                { name: "Statistical Analysis Plan Final", unit: 1, costPerHour: 1.0, hoursPerUnit: 20, costPerUnit: 20.0, estimatedCost: 20.0 },
-                { name: "Analysis Shells Development", unit: 1, costPerHour: 1.0, hoursPerUnit: 60, costPerUnit: 60.0, estimatedCost: 60.0 },
-                { name: "Mock Tables, Listings, and Figures", unit: 1, costPerHour: 1.0, hoursPerUnit: 40, costPerUnit: 40.0, estimatedCost: 40.0 }
+                { name: "Statistical Analysis Plan Draft 1", unit: "", costPerHour: 1.0, hoursPerUnit: 40, costPerUnit: 40.0 },
+                { name: "Statistical Analysis Plan Draft 2", unit: "", costPerHour: 1.0, hoursPerUnit: 30, costPerUnit: 30.0 },
+                { name: "Statistical Analysis Plan Final", unit: "", costPerHour: 1.0, hoursPerUnit: 20, costPerUnit: 20.0 },
+                { name: "Analysis Shells Development", unit: "", costPerHour: 1.0, hoursPerUnit: 60, costPerUnit: 60.0 },
+                { name: "Mock Tables, Listings, and Figures", unit: "", costPerHour: 1.0, hoursPerUnit: 40, costPerUnit: 40.0 }
               ];
-              
               for (const subItem of sapSubItems) {
                 const subItemRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
-                subItemRange.values = [[
-                  subItem.name,
-                  "", // Unit列不填写
-                  `$${subItem.costPerHour}`,
-                  subItem.hoursPerUnit,
-                  `$${subItem.costPerUnit}`,
-                  "", // Estimated Cost列不填写
-                  "" // Notes列为空
-                ]];
-                subItemRange.format.font.bold = false; // 不加粗
+                subItemRange.values = [[subItem.name, "", `$${subItem.costPerHour}`, subItem.hoursPerUnit, `$${subItem.costPerUnit}`, "", ""]];
+                subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
-                // 数字列右对齐
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
                 numberColumns.format.horizontalAlignment = "Right";
                 currentRow++;
               }
             }
-            
-            // 3. 添加主项目的Subtotal行
+
+            // Subtotal for main section
             const mainSubtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
             mainSubtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
             mainSubtotalRange.format.font.bold = true;
             mainSubtotalRange.format.horizontalAlignment = "Right";
             currentRow++;
-            
-            // 4. 如果有次数且是SDTM/ADAM，添加Transfer子项目
+
+            // Transfer blocks remain unchanged
             if (count && count > 0 && (isSDTM || isADAM)) {
-              const transferSubsection = isSDTM ? 
-                `SDTM Dataset Transfer (${count} times)` : 
-                `ADAM Dataset Transfer (${count} times)`;
-              
+              const transferSubsection = isSDTM ? `SDTM Dataset Transfer (${count} times)` : `ADAM Dataset Transfer (${count} times)`;
               const transferRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
               transferRange.values = [[transferSubsection, "", "", "", "", "", ""]];
-              transferRange.format.font.bold = true; // Transfer subtitle要加粗
+              transferRange.format.font.bold = true;
               transferRange.format.horizontalAlignment = "Left";
               currentRow++;
-              
-              // 5. 添加Transfer的详细子项目
+
               const transferSubItems = isSDTM ? [
-                { name: `Production and Validation, the first 2 times`, unit: 2, costPerHour: 1.0, hoursPerUnit: 25, costPerUnit: 25.0, estimatedCost: 50.0 },
-                { name: `Production and Validation, the last ${count - 2} times`, unit: count - 2, costPerHour: 1.0, hoursPerUnit: 12.5, costPerUnit: 12.5, estimatedCost: (count - 2) * 12.5 }
+                { name: `Production and Validation, the first 2 times`, unit: 2, costPerHour: 1.0, hoursPerUnit: 25, costPerUnit: 25.0 },
+                { name: `Production and Validation, the last ${count - 2} times`, unit: count - 2, costPerHour: 1.0, hoursPerUnit: 12.5, costPerUnit: 12.5 }
               ] : [
-                { name: `Production and Validation, the first 2 times`, unit: 2, costPerHour: 1.0, hoursPerUnit: 15, costPerUnit: 15.0, estimatedCost: 30.0 },
-                { name: `Production and Validation, the last ${count - 2} times`, unit: count - 2, costPerHour: 1.0, hoursPerUnit: 7.5, costPerUnit: 7.5, estimatedCost: (count - 2) * 7.5 }
+                { name: `Production and Validation, the first 2 times`, unit: 2, costPerHour: 1.0, hoursPerUnit: 15, costPerUnit: 15.0 },
+                { name: `Production and Validation, the last ${count - 2} times`, unit: count - 2, costPerHour: 1.0, hoursPerUnit: 7.5, costPerUnit: 7.5 }
               ];
-              
               for (const transferSubItem of transferSubItems) {
                 const transferSubItemRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
-                transferSubItemRange.values = [[
-                  transferSubItem.name,
-                  "", // Unit列不填写
-                  `$${transferSubItem.costPerHour}`,
-                  transferSubItem.hoursPerUnit,
-                  `$${transferSubItem.costPerUnit}`,
-                  "", // Estimated Cost列不填写
-                  "" // Notes列为空
-                ]];
-                transferSubItemRange.format.font.bold = false; // 不加粗
+                transferSubItemRange.values = [[transferSubItem.name, "", `$${transferSubItem.costPerHour}`, transferSubItem.hoursPerUnit, `$${transferSubItem.costPerUnit}`, "", ""]];
+                transferSubItemRange.format.font.bold = false;
                 transferSubItemRange.format.horizontalAlignment = "Left";
-                // 数字列右对齐
                 const transferNumberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
                 transferNumberColumns.format.horizontalAlignment = "Right";
                 currentRow++;
               }
-              
-              // 6. 添加Transfer的Subtotal行
               const transferSubtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
               transferSubtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
               transferSubtotalRange.format.font.bold = true;
               transferSubtotalRange.format.horizontalAlignment = "Right";
               currentRow++;
             }
-            
+
           } else if (isDSUR || isDSMB) {
-            // DSUR/DSMB: 只显示带次数的行 + subtotal
-            
             if (count && count > 0) {
-              const rerunSubsection = isDSUR ? 
-                `DSUR Rerun (${count} times)` : 
-                `DSMB Rerun (${count} times)`;
-              
-              // 1. 添加Rerun行（带次数）
+              const rerunSubsection = isDSUR ? `DSUR Rerun (${count} times)` : `DSMB Rerun (${count} times)`;
               const rerunRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
               rerunRange.values = [[rerunSubsection, "", "", "", "", "", ""]];
-              rerunRange.format.font.bold = true; // Rerun subtitle要加粗
+              rerunRange.format.font.bold = true;
               rerunRange.format.horizontalAlignment = "Left";
               currentRow++;
-              
-              // 2. 添加Rerun的Subtotal行
               const rerunSubtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
               rerunSubtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
               rerunSubtotalRange.format.font.bold = true;
               rerunSubtotalRange.format.horizontalAlignment = "Right";
               currentRow++;
             }
-            
           } else {
-            // 其他项目: 正常处理（项目名 + subtotal）
-            
-            // 1. 添加项目名称行
             const projectNameRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
             projectNameRange.values = [[projectName, "", "", "", "", "", ""]];
-            projectNameRange.format.font.bold = true; // 主项目名称要加粗
+            projectNameRange.format.font.bold = true;
             projectNameRange.format.horizontalAlignment = "Left";
             currentRow++;
-            
-            // 2. 添加Subtotal行
             const subtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
             subtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
             subtotalRange.format.font.bold = true;
@@ -1147,50 +1503,35 @@ async function populateExcelWithSelectedProjects() {
           }
         }
       }
-      
-      // 第二部分：默认的固定子项目
-      const defaultSubsections = [
-        "License Fees",
-        "Adhoc Analysis", 
-        "Project Management/Administration(12 Months)"
+
+      // 默认末尾三部分
+      const defaultSections = [
+        'License Fees',
+        'Adhoc Analysis',
+        'Project Management/Administration(12 Months)'
       ];
-      
-      for (const subsection of defaultSubsections) {
-        // 添加子项目名称行（加粗，左对齐）
-        const subsectionRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
-        subsectionRange.values = [[subsection, "", "", "", "", "", ""]];
-        subsectionRange.format.font.bold = true; // 默认subsection要加粗
-        subsectionRange.format.horizontalAlignment = "Left";
+      for (const sectionName of defaultSections) {
+        const range = worksheet.getRange(`A${currentRow}:G${currentRow}`);
+        range.values = [[sectionName, "", "", "", "", "", ""]];
+        range.format.font.bold = true;
+        range.format.horizontalAlignment = 'Left';
         currentRow++;
-        
-        // 添加该子项目的Subtotal行（加粗，右对齐）
         const subtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
         subtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
         subtotalRange.format.font.bold = true;
-        subtotalRange.format.horizontalAlignment = "Right";
+        subtotalRange.format.horizontalAlignment = 'Right';
         currentRow++;
       }
-      
-      // 自动调整列宽
-      // 添加Grand Total行（最后一行，右对齐且加粗）
+
+      // Grand Total
       const grandTotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
       grandTotalRange.values = [["Grand Total", "", "", "", "", "", ""]];
       grandTotalRange.format.font.bold = true;
-      grandTotalRange.format.horizontalAlignment = "Right";
-      currentRow++;
-
-      // 自动调整列A的宽度
-      const taskColumn = worksheet.getRange("A:A");
-      taskColumn.format.autofitColumns();
-
-      await context.sync();
-      console.log('✅ Excel任务列表已填充');
-      showStatusMessage('Project tasks added to Excel successfully!', 'success');
+      grandTotalRange.format.horizontalAlignment = 'Right';
     });
-    
   } catch (error) {
-    console.error('❌ 填充Excel任务列表时出错:', error);
-    showStatusMessage('Failed to populate Excel with projects: ' + error.message, 'error');
+    console.error('填充Excel任务列表失败:', error);
+    showStatusMessage('Failed to populate Excel: ' + error.message, 'error');
   }
 }
 

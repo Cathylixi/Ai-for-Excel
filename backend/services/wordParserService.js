@@ -1,6 +1,6 @@
 const mammoth = require('mammoth');
 const cheerio = require('cheerio');
-const { identifyAssessmentScheduleWithAI } = require('./openaiService');
+const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./openaiService');
 const { performSDTMAnalysis } = require('./sdtmAnalysisService');
 
 // Word文档结构化解析函数 - 优化版
@@ -32,6 +32,10 @@ async function parseWordDocumentStructure(filePath) {
     // 第2步：同时获取原始文本用于模式匹配
     const rawTextResult = await mammoth.extractRawText({ path: filePath });
     const extractedText = rawTextResult.value;
+
+    // 提取Study Number（AI + 兜底）
+    const studyNumber = await extractStudyNumber(extractedText);
+    if (studyNumber) console.log('🔎 识别到 Study Number:', studyNumber);
     
     // 使用cheerio解析HTML
     const $ = cheerio.load(htmlContent);
@@ -89,6 +93,7 @@ async function parseWordDocumentStructure(filePath) {
       tables,
       assessmentSchedule,
       sdtmAnalysis,
+      studyNumber,
       parseInfo: {
         hasStructuredContent: true,
         sectionsCount: sections.length,
@@ -104,6 +109,7 @@ async function parseWordDocumentStructure(filePath) {
     // 回退到基础的文本提取
     try {
       const rawTextResult = await mammoth.extractRawText({ path: filePath });
+      const fallbackStudyNumber = await extractStudyNumber(rawTextResult.value);
       return {
         extractedText: rawTextResult.value,
         sectionedText: [],
@@ -120,6 +126,7 @@ async function parseWordDocumentStructure(filePath) {
             unique_domains: []
           }
         },
+        studyNumber: fallbackStudyNumber,
         parseInfo: {
           hasStructuredContent: false,
           sectionsCount: 0,

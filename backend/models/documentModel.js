@@ -19,6 +19,12 @@ const DocumentSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.Mixed, 
     default: {} 
   },
+
+  // 新增：研究编号（从文档正文识别）
+  studyNumber: { type: String },
+
+  // 新增：成本估算是否完成（向导完成标记）
+  isCostEstimate: { type: Boolean, default: false },
   
   // 传统的完整文本存储（保留兼容性）
   extractedText: { type: String },
@@ -61,7 +67,15 @@ const DocumentSchema = new mongoose.Schema({
     summary: {
       total_procedures: { type: Number, default: 0 },
       total_sdtm_domains: { type: Number, default: 0 },
-      unique_domains: [{ type: String }] // 涉及的所有不同SDTM域
+      unique_domains: [{ type: String }], // 涉及的所有不同SDTM域
+      highComplexitySdtm: {
+        count: { type: Number, default: 0 },
+        domains: [{ type: String }]
+      },
+      mediumComplexitySdtm: {
+        count: { type: Number, default: 0 },
+        domains: [{ type: String }]
+      }
     },
     analyzedAt: { type: Date }
   },
@@ -78,7 +92,15 @@ const DocumentSchema = new mongoose.Schema({
     summary: {
       total_procedures: { type: Number },
       total_sdtm_domains: { type: Number },
-      unique_domains: [{ type: String }]
+      unique_domains: [{ type: String }],
+      highComplexitySdtm: {
+        count: { type: Number },
+        domains: [{ type: String }]
+      },
+      mediumComplexitySdtm: {
+        count: { type: Number },
+        domains: [{ type: String }]
+      }
     },
     confirmedAt: { type: Date, default: Date.now }
   },
@@ -102,6 +124,12 @@ const DocumentSchema = new mongoose.Schema({
   // 🔥 新增：项目选择详细信息 (简化格式)
   projectSelectionDetails: {
     type: mongoose.Schema.Types.Mixed, // 动态存储 "项目名": 次数 的键值对
+    default: {}
+  },
+
+  // 🔥 新增：成本估算快照（支持按业务板块分区）
+  costEstimate: {
+    type: mongoose.Schema.Types.Mixed, // 结构示例：{ "SDTM Datasets Production and Validation": { sdtmProduction: {...}, estimatedCosts: {...} }, createdAt }
     default: {}
   },
   

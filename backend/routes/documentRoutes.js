@@ -7,7 +7,9 @@ const {
   getDocumentContent, 
   exportAssessmentSchedule,
   confirmSDTMAnalysis,
-  updateProjectSelection
+  updateProjectSelection,
+  markCostEstimateDone,
+  listIncompleteEstimates
 } = require('../controllers/documentController');
 
 const router = express.Router();
@@ -47,6 +49,9 @@ router.get('/test', (req, res) => {
   });
 });
 
+// 列出未完成的成本估算
+router.get('/documents/incomplete-estimates', listIncompleteEstimates);
+
 // Clinical Protocol 专用上传API
 router.post('/upload-document', upload.single('document'), uploadDocument);
 
@@ -64,5 +69,8 @@ router.patch('/documents/:id/confirm-sdtm', confirmSDTMAnalysis);
 
 // 🔥 新增：更新项目选择详细信息 API
 router.patch('/documents/:id/project-selection', updateProjectSelection);
+
+// 🔥 新增：标记成本估算完成（Done）
+router.patch('/documents/:id/mark-complete', markCostEstimateDone);
 
 module.exports = router; 

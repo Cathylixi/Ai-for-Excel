@@ -135,35 +135,52 @@ ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
 - FA (Findings About)
 - IE (Inclusion/Exclusion)
 
-🔥 映射规则：
-1. 如果procedure明显属于某个SDTM域，直接映射
-2. 如果procedure不是标准医学程序（如研究信息、日期等），映射到最相关的域：
-   - 研究相关信息 → DM (Demographics) 或 SC (Subject Characteristics)
-   - 同意书、筛选 → IE (Inclusion/Exclusion)
-   - 其他描述性信息 → DM (Demographics)
+🔥 映射与复杂度规则：
+1. 每个procedure都应该是标准的医学程序或评估活动
+2. 基于procedure的医学含义，映射到最合适的SDTM域
+3. 为每个procedure评估复杂度等级：
+   - High Complexity: 复杂的实验室检测、多参数生物标志物、复杂的问卷评估、特殊的医学检查等
+   - Medium Complexity: 标准的体格检查、基础生命体征、常规实验室检测、标准药物给药等
+4. 复杂度统计的域级互斥原则（非常重要）：
+   - 请在summary中按“域（domain）”去重后统计复杂度集合。
+   - 若同一个域在不同procedures中同时被标注为High与Medium，请将该域归入High集合（High覆盖Medium）。
+   - 最终 High 与 Medium 两个集合在域级别必须互斥，且它们的并集大小必须等于 unique_domains 的长度。
+   - 同时，total_sdtm_domains 必须等于 unique_domains 的长度，且等于 High 与 Medium 两个集合并集的大小。
 
 请返回JSON格式，确保mappings数组包含exactly ${procedures.length}个条目（每个procedure一个）：
 {
   "mappings": [
-    {"procedure": "完全匹配的procedure名称", "sdtm_domains": ["相应的域"]}
+    {
+      "procedure": "完全匹配的procedure名称", 
+      "sdtm_domains": ["相应的域"],
+      "complexity": "High"或"Medium"
+    }
   ],
   "summary": {
     "total_procedures": ${procedures.length},
     "total_sdtm_domains": "unique_domains数组的长度（去重后的唯一域数量）",
-    "unique_domains": ["所有不重复的域列表"]
+    "unique_domains": ["所有不重复的域列表"],
+    "highComplexitySdtm": {
+      "count": "高复杂度域的数量（互斥，按域去重，并与Medium不重叠）",
+      "domains": ["高复杂度域列表（去重）"]
+    },
+    "mediumComplexitySdtm": {
+      "count": "中复杂度域的数量（互斥，按域去重，并与High不重叠）", 
+      "domains": ["中复杂度域列表（去重）"]
+    }
   }
 }`;
 
     const response = await openai.chat.completions.create({
-      model: "gpt-3.5-turbo",
+      model: "gpt-4",  // 升级到 GPT-4
       messages: [
         {
           role: "user",
           content: prompt
         }
       ],
-      max_tokens: 1500,
-      temperature: 0.1
+      max_tokens: 2000,  // 增加token限制，因为GPT-4的理解和生成能力更强
+      temperature: 0.1   // 保持低温度以获得确定性的答案
     });
     
     const aiResponse = response.choices[0].message.content.trim();
@@ -172,7 +189,16 @@ ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
     // 解析AI的JSON回复
     let analysis;
     try {
-      analysis = JSON.parse(aiResponse);
+      // 提取JSON部分（处理GPT可能包含额外文本的情况）
+      let jsonText = aiResponse;
+      const jsonStart = aiResponse.indexOf('{');
+      const jsonEnd = aiResponse.lastIndexOf('}') + 1;
+      
+      if (jsonStart !== -1 && jsonEnd > jsonStart) {
+        jsonText = aiResponse.substring(jsonStart, jsonEnd);
+      }
+      
+      analysis = JSON.parse(jsonText);
     } catch (parseError) {
       console.error('❌ GPT回复JSON解析失败:', parseError);
       return {
@@ -191,7 +217,36 @@ ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
     if (!analysis.mappings || !analysis.summary) {
       throw new Error('GPT返回的分析结果格式不正确');
     }
-    
+
+    // 统一后处理：基于域去重并确保 High 覆盖 Medium、互斥且一致
+    const domainToComplexity = new Map();
+    (analysis.mappings || []).forEach(m => {
+      const c = m && m.complexity === 'High' ? 'High' : 'Medium';
+      const domains = Array.isArray(m?.sdtm_domains) ? m.sdtm_domains : [];
+      domains.forEach(d => {
+        const dom = (d || '').trim();
+        if (!dom) return;
+        const existing = domainToComplexity.get(dom);
+        if (!existing || (existing === 'Medium' && c === 'High')) {
+          domainToComplexity.set(dom, c);
+        }
+      });
+    });
+    const uniqueDomains = Array.from(domainToComplexity.keys());
+    const highDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'High');
+    const mediumDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'Medium');
+
+    analysis.summary.unique_domains = uniqueDomains;
+    analysis.summary.total_sdtm_domains = uniqueDomains.length;
+    analysis.summary.highComplexitySdtm = {
+      count: highDomains.length,
+      domains: highDomains
+    };
+    analysis.summary.mediumComplexitySdtm = {
+      count: mediumDomains.length,
+      domains: mediumDomains
+    };
+
     console.log(`✅ SDTM分析完成 - 发现 ${analysis.summary.unique_domains.length} 个不同的SDTM域`);
     
     return {
