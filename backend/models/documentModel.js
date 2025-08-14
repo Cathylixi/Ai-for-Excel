@@ -23,8 +23,13 @@ const DocumentSchema = new mongoose.Schema({
   // 新增：研究编号（从文档正文识别）
   studyNumber: { type: String },
 
-  // 新增：成本估算是否完成（向导完成标记）
-  isCostEstimate: { type: Boolean, default: false },
+  // 🔥 项目完成状态追踪（移到最外层，与studyNumber同级）
+  projectDone: {
+    // 成本估算是否完成（向导完成标记）
+    isCostEstimate: { type: Boolean, default: false },
+    // SAS Analysis 完成标记
+    isSasAnalysis: { type: Boolean, default: false }
+  },
   
   // 传统的完整文本存储（保留兼容性）
   extractedText: { type: String },
@@ -55,82 +60,77 @@ const DocumentSchema = new mongoose.Schema({
     extractedAt: { type: Date, default: Date.now }
   },
   
-  // 新增：SDTM分析结果字段 (AI原始分析)
-  sdtmAnalysis: {
-    success: { type: Boolean, default: false },
-    message: { type: String },
-    procedures: [{ type: String }], // 从第一列提取的procedures列表
-    mappings: [{
-      procedure: { type: String, required: true },
-      sdtm_domains: [{ type: String }] // 对应的SDTM域列表
-    }],
-    summary: {
-      total_procedures: { type: Number, default: 0 },
-      total_sdtm_domains: { type: Number, default: 0 },
-      unique_domains: [{ type: String }], // 涉及的所有不同SDTM域
-      highComplexitySdtm: {
-        count: { type: Number, default: 0 },
-        domains: [{ type: String }]
-      },
-      mediumComplexitySdtm: {
-        count: { type: Number, default: 0 },
-        domains: [{ type: String }]
-      }
-    },
-    analyzedAt: { type: Date }
-  },
-  
-  // 新增：用户确认后的SDTM分析结果
-  userConfirmedSdtm: {
-    success: { type: Boolean },
-    message: { type: String },
-    procedures: [{ type: String }],
-    mappings: [{
-      procedure: { type: String, required: true },
-      sdtm_domains: [{ type: String }]
-    }],
-    summary: {
-      total_procedures: { type: Number },
-      total_sdtm_domains: { type: Number },
-      unique_domains: [{ type: String }],
-      highComplexitySdtm: {
-        count: { type: Number },
-        domains: [{ type: String }]
-      },
-      mediumComplexitySdtm: {
-        count: { type: Number },
-        domains: [{ type: String }]
-      }
-    },
-    confirmedAt: { type: Date, default: Date.now }
-  },
-  
-  // 新增：SDTM分析状态
-  sdtmAnalysisStatus: {
-    type: String,
-    enum: ['pending_confirmation', 'confirmed'],
-    default: 'pending_confirmation'
-  },
-  
-  // 解析状态信息
-  parseInfo: {
-    hasStructuredContent: { type: Boolean, default: false },
-    sectionsCount: { type: Number, default: 0 },
-    tablesCount: { type: Number, default: 0 },
-    parseMethod: { type: String }, // 'raw-text' or 'structured-html'
-    hasAssessmentSchedule: { type: Boolean, default: false } // 是否识别出评估时间表
-  },
-  
-  // 🔥 新增：项目选择详细信息 (简化格式)
-  projectSelectionDetails: {
-    type: mongoose.Schema.Types.Mixed, // 动态存储 "项目名": 次数 的键值对
-    default: {}
-  },
+  // 🔥 成本估算与SDTM相关业务：统一归档到 ProjectCostEstimateDetails
+  ProjectCostEstimateDetails: {
 
-  // 🔥 新增：成本估算快照（支持按业务板块分区）
-  costEstimate: {
-    type: mongoose.Schema.Types.Mixed, // 结构示例：{ "SDTM Datasets Production and Validation": { sdtmProduction: {...}, estimatedCosts: {...} }, createdAt }
-    default: {}
+    // SDTM分析结果字段 (AI原始分析)
+    sdtmAnalysis: {
+      success: { type: Boolean, default: false },
+      message: { type: String },
+      procedures: [{ type: String }],
+      mappings: [{
+        procedure: { type: String, required: true },
+        sdtm_domains: [{ type: String }]
+      }],
+      summary: {
+        total_procedures: { type: Number, default: 0 },
+        total_sdtm_domains: { type: Number, default: 0 },
+        unique_domains: [{ type: String }],
+        highComplexitySdtm: {
+          count: { type: Number, default: 0 },
+          domains: [{ type: String }]
+        },
+        mediumComplexitySdtm: {
+          count: { type: Number, default: 0 },
+          domains: [{ type: String }]
+        }
+      },
+      analyzedAt: { type: Date }
+    },
+
+    // 用户确认后的SDTM分析结果
+    userConfirmedSdtm: {
+      success: { type: Boolean },
+      message: { type: String },
+      procedures: [{ type: String }],
+      mappings: [{
+        procedure: { type: String, required: true },
+        sdtm_domains: [{ type: String }]
+      }],
+      summary: {
+        total_procedures: { type: Number },
+        total_sdtm_domains: { type: Number },
+        unique_domains: [{ type: String }],
+        highComplexitySdtm: {
+          count: { type: Number },
+          domains: [{ type: String }]
+        },
+        mediumComplexitySdtm: {
+          count: { type: Number },
+          domains: [{ type: String }]
+        }
+      },
+      confirmedAt: { type: Date, default: Date.now }
+    },
+
+    // SDTM分析状态
+    sdtmAnalysisStatus: {
+      type: String,
+      enum: ['pending_confirmation', 'confirmed'],
+      default: 'pending_confirmation'
+    },
+
+    // 项目选择详细信息 (简化格式)
+    projectSelectionDetails: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    },
+
+    // 成本估算快照
+    costEstimate: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+    }
   },
   
   uploadedAt: { type: Date, default: Date.now }

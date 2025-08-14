@@ -1,9 +1,9 @@
 const mammoth = require('mammoth');
 const cheerio = require('cheerio');
 const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./openaiService');
-const { performSDTMAnalysis } = require('./sdtmAnalysisService');
+// const { performSDTMAnalysis } = require('./sdtmAnalysisService');
 
-// Word文档结构化解析函数 - 优化版
+// Word文档结构化解析函数 - 优化版（仅解析与存储，不进行SDTM分析）
 async function parseWordDocumentStructure(filePath) {
   try {
     console.log('🔍 开始优化的结构化解析Word文档...');
@@ -63,29 +63,12 @@ async function parseWordDocumentStructure(filePath) {
     
     console.log(`📝 优化算法解析到 ${sections.length} 个章节`);
     
-    // 使用AI识别评估时间表
+    // 识别评估时间表（供后续分析使用）
     console.log('🔍 开始AI识别评估时间表...');
     const assessmentSchedule = await identifyAssessmentScheduleWithAI(tables);
     
-    // 新增：SDTM分析
-    let sdtmAnalysis = null;
-    if (assessmentSchedule) {
-      console.log('🎯 开始SDTM分析...');
-      sdtmAnalysis = await performSDTMAnalysis(assessmentSchedule);
-    } else {
-      console.log('⚠️ 跳过SDTM分析（未找到评估时间表）');
-      sdtmAnalysis = {
-        success: false,
-        message: '未找到评估时间表，无法进行SDTM分析',
-        procedures: [],
-        mappings: [],
-        summary: {
-          total_procedures: 0,
-          total_sdtm_domains: 0,
-          unique_domains: []
-        }
-      };
-    }
+    // 不在此处执行 SDTM 分析；延后到显式的分析步骤
+    const sdtmAnalysis = null;
     
     return {
       extractedText,
@@ -115,17 +98,7 @@ async function parseWordDocumentStructure(filePath) {
         sectionedText: [],
         tables: [],
         assessmentSchedule: null,
-        sdtmAnalysis: {
-          success: false,
-          message: '文档解析失败，无法进行SDTM分析',
-          procedures: [],
-          mappings: [],
-          summary: {
-            total_procedures: 0,
-            total_sdtm_domains: 0,
-            unique_domains: []
-          }
-        },
+        sdtmAnalysis: null, // 不在上传阶段进行分析
         studyNumber: fallbackStudyNumber,
         parseInfo: {
           hasStructuredContent: false,

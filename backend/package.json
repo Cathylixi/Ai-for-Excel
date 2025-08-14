@@ -27,6 +27,7 @@
     "mammoth": "^1.9.1",
     "mongoose": "^8.17.0",
     "multer": "^2.0.2",
+    "office-addin-dev-certs": "^2.0.3",
     "openai": "^5.11.0",
     "pdf-parse": "^1.1.1",
     "pdf2pic": "^3.2.0",

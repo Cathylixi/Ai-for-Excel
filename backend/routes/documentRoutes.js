@@ -9,7 +9,9 @@ const {
   confirmSDTMAnalysis,
   updateProjectSelection,
   markCostEstimateDone,
-  listIncompleteEstimates
+  listIncompleteEstimates,
+  analyzeDocumentForSdtm,
+  updateUnits
 } = require('../controllers/documentController');
 
 const router = express.Router();
@@ -35,18 +37,8 @@ if (!fs.existsSync('uploads')) {
   fs.mkdirSync('uploads');
 }
 
-// 基础路由 - 测试服务器是否运行
 router.get('/test', (req, res) => {
-  res.json({ 
-    success: true,
-    message: '后端 API 连接成功！',
-    data: { 
-      server: 'running', 
-      database: 'connected',
-      databaseType: 'MongoDB Atlas',
-      features: ['clinical-protocol-upload', 'mongodb-storage']
-    }
-  });
+  res.json({ success: true, message: '后端 API 连接成功！', data: { server: 'running', database: 'connected', databaseType: 'MongoDB Atlas' } });
 });
 
 // 列出未完成的成本估算
@@ -54,6 +46,9 @@ router.get('/documents/incomplete-estimates', listIncompleteEstimates);
 
 // Clinical Protocol 专用上传API
 router.post('/upload-document', upload.single('document'), uploadDocument);
+
+// 触发延迟SDTM分析
+router.post('/documents/:id/analyze-sdtm', analyzeDocumentForSdtm);
 
 // 获取已上传的文档列表 API
 router.get('/documents', getDocuments);
@@ -67,10 +62,13 @@ router.get('/documents/:id/export-schedule', exportAssessmentSchedule);
 // 确认SDTM分析结果 API
 router.patch('/documents/:id/confirm-sdtm', confirmSDTMAnalysis);
 
-// 🔥 新增：更新项目选择详细信息 API
+// 更新项目选择详细信息 API
 router.patch('/documents/:id/project-selection', updateProjectSelection);
 
-// 🔥 新增：标记成本估算完成（Done）
+// 标记成本估算完成（Done）
 router.patch('/documents/:id/mark-complete', markCostEstimateDone);
+
+// 更新Excel中的Unit数据
+router.patch('/documents/:id/update-units', updateUnits);
 
 module.exports = router; 

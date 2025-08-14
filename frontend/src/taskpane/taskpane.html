@@ -8,7 +8,7 @@
     <meta charset="UTF-8" />
     <meta http-equiv="X-UA-Compatible" content="IE=Edge" />
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>LLX Excel Business Cost</title>
+    <title>LLXSolutions</title>
 
     <!-- Office JavaScript API -->
     <script type="text/javascript" src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"></script>
@@ -21,246 +21,287 @@
 </head>
 
 <body class="ms-font-m ms-welcome ms-Fabric">
-    <header class="ms-welcome__header ms-bgColor-neutralLighter">
-        <h1 class="ms-font-su">LLX Excel Business Cost</h1>
-    </header>
+
     <section id="sideload-msg" class="ms-welcome__main">
         <h2 class="ms-font-xl">Please <a target="_blank" href="https://learn.microsoft.com/office/dev/add-ins/testing/test-debug-office-add-ins#sideload-an-office-add-in-for-testing">sideload</a> your add-in to see app body.</h2>
     </section>
     <main id="app-body" class="ms-welcome__main" style="display: none;">
 
-        <!-- Add start modal for continue/new selection -->
-        <div id="start-modal" class="start-modal" style="display:none;">
-          <div class="start-modal-content">
-            <h3 id="start-modal-title">Welcome back</h3>
-            <p id="start-modal-desc">We found unfinished studies. Continue or start a new estimate?</p>
-            <div id="incomplete-list"></div>
-            <div class="start-modal-actions">
-              <button class="ms-Button" id="start-new-btn"><span class="ms-Button-label">Start New</span></button>
-              <button class="ms-Button ms-Button--primary" id="continue-selected-btn"><span class="ms-Button-label">Continue Selected</span></button>
+        <!-- Step 1: ChatGPT-style Welcome with Chat Interface -->
+        <div class="wizard-page" data-step="1" style="display: none;">
+          <h3 class="ms-font-l">🤖 AI Assistant</h3>
+          
+          <!-- Chat Interface -->
+          <div class="chat-container" id="chat-container">
+            <div class="chat-messages" id="chat-messages">
+              <div class="message ai-message">
+                <div class="message-content">
+                  Hello! What would you like to do today? 
+                  <br><br>You can say something like:
+                  <br>• "I want to do Phase II study cost analysis for study SK123-kbi"
+                  <br>• "Help me estimate costs for an oncology trial (study number: ABC-123)"
+                  <br>• "I need SDTM mapping for study SK123-kbi protocol"
+                </div>
+              </div>
+            </div>
+            
+            <div class="chat-input-area">
+              <div class="input-group">
+                <input type="text" 
+                       id="chat-input" 
+                       class="chat-input" 
+                       placeholder="e.g. I want to do Phase II study cost analysis for study SK123-kbi" 
+                       maxlength="500">
+                <button id="chat-send-btn" class="chat-send-btn">
+                  <span class="ms-Icon ms-Icon--Send"></span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
 
-        <!-- Page 1: Project Selection Section -->
-        <div class="project-selection-section wizard-page" data-step="1">
-            <h3 class="ms-font-l">🎯 Project Selection</h3>
-            <p class="ms-font-s">Please select the services you need (multiple selection allowed):</p>
-            <div class="project-options">
-                <div class="project-option">
-                    <input type="checkbox" id="project-1" class="ms-CheckBox-input" />
-                    <label for="project-1" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">Statistical Analysis Plan and Shells Development (2 Drafts and 1 Final)</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-2" class="ms-CheckBox-input" data-requires-count="sdtm-transfer" />
-                    <label for="project-2" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">SDTM Datasets Production and Validation</span>
-                    </label>
-                    <!-- 动态输入框 -->
-                    <div class="count-input-container" id="sdtm-transfer-container" style="display: none;">
-                        <label class="count-label">Data Transfer Times:</label>
-                        <input type="number" id="sdtm-transfer-count" class="count-input ms-TextField-field" 
-                               min="1" max="999" placeholder="e.g. 5" />
-                        <span class="count-suffix">times</span>
-                    </div>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-3" class="ms-CheckBox-input" data-requires-count="adam-transfer" />
-                    <label for="project-3" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">ADaM Datasets Production and Validation</span>
-                    </label>
-                    <!-- 动态输入框 -->
-                    <div class="count-input-container" id="adam-transfer-container" style="display: none;">
-                        <label class="count-label">Data Transfer Times:</label>
-                        <input type="number" id="adam-transfer-count" class="count-input ms-TextField-field" 
-                               min="1" max="999" placeholder="e.g. 3" />
-                        <span class="count-suffix">times</span>
-                    </div>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-4" class="ms-CheckBox-input" />
-                    <label for="project-4" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">Tables, Figures, and Listings Development</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-5" class="ms-CheckBox-input" />
-                    <label for="project-5" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">Interim Analysis</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-6" class="ms-CheckBox-input" />
-                    <label for="project-6" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">Final Analysis</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-7" class="ms-CheckBox-input" />
-                    <label for="project-7" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">DSUR First Time</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-8" class="ms-CheckBox-input" data-requires-count="dsur-rerun" />
-                    <label for="project-8" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">DSUR Rerun</span>
-                    </label>
-                    <!-- 动态输入框 -->
-                    <div class="count-input-container" id="dsur-rerun-container" style="display: none;">
-                        <label class="count-label">Rerun Times:</label>
-                        <input type="number" id="dsur-rerun-count" class="count-input ms-TextField-field" 
-                               min="1" max="999" placeholder="e.g. 4" />
-                        <span class="count-suffix">times</span>
-                    </div>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-9" class="ms-CheckBox-input" />
-                    <label for="project-9" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">DSMB/IDMC First Time</span>
-                    </label>
-                </div>
-                <div class="project-option">
-                    <input type="checkbox" id="project-10" class="ms-CheckBox-input" data-requires-count="dsmb-rerun" />
-                    <label for="project-10" class="ms-CheckBox-label">
-                        <span class="ms-CheckBox-field"></span>
-                        <span class="ms-CheckBox-text">DSMB Rerun</span>
-                    </label>
-                    <!-- 动态输入框 -->
-                    <div class="count-input-container" id="dsmb-rerun-container" style="display: none;">
-                        <label class="count-label">Rerun Times:</label>
-                        <input type="number" id="dsmb-rerun-count" class="count-input ms-TextField-field" 
-                               min="1" max="999" placeholder="e.g. 2" />
-                        <span class="count-suffix">times</span>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- 自动保存提示 -->
-            <div class="auto-save-section">
-                <p class="auto-save-hint">💡 Your selection will be automatically saved when you upload a document</p>
-            </div>
-        </div>
+
         
-        <!-- Page 2: Protocol Upload Section -->
+        <!-- Step 3: Protocol Upload Section -->
         <div class="upload-section wizard-page" data-step="2">
-            <h3 class="ms-font-l">📋 Protocol Upload</h3>
-            <div class="upload-area" id="protocol-upload-area">
+          <h3 class="ms-font-l">📋 Protocol Upload</h3>
+          <div class="upload-area" id="protocol-upload-area">
             <div class="upload-content">
                 <i class="ms-Icon ms-Icon--CloudUpload ms-font-xxl upload-icon"></i>
-                    <h4 class="ms-font-l">Upload Protocol Document</h4>
-                    <p class="ms-font-m">Support PDF and Word documents</p>
-                    <div class="ms-Button ms-Button--primary" id="protocol-select-btn">
-                        <span class="ms-Button-label">Select File</span>
+                  <h4 class="ms-font-l">Upload Protocol Document</h4>
+                  <p class="ms-font-m">Support PDF and Word documents</p>
+                  <div class="ms-Button ms-Button--primary" id="protocol-select-btn">
+                      <span class="ms-Button-label">Select File</span>
                 </div>
-                    <input type="file" id="protocol-file-input" accept=".pdf,.doc,.docx" style="display: none;">
+                  <input type="file" id="protocol-file-input" accept=".pdf,.doc,.docx" style="display: none;">
             </div>
         </div>
 
-            <!-- Upload Progress -->
-            <div class="upload-progress" id="protocol-progress" style="display: none;">
+          <!-- Upload Progress -->
+          <div class="upload-progress" id="protocol-progress" style="display: none;">
             <div class="ms-Spinner">
                 <div class="ms-Spinner-circle ms-Spinner-circle--large"></div>
             </div>
-                <p class="ms-font-m" id="protocol-progress-text">Uploading protocol...</p>
-                <div class="ms-Button" id="protocol-cancel-btn">
-                    <span class="ms-Button-label">Cancel Upload</span>
+              <p class="ms-font-m" id="protocol-progress-text">Uploading protocol...</p>
+              <div class="ms-Button" id="protocol-cancel-btn">
+                  <span class="ms-Button-label">Cancel Upload</span>
+              </div>
+          </div>
+
+          <!-- Upload Result -->
+          <div class="upload-result" id="protocol-result" style="display: none;">
+              <div class="file-info">
+                  <i class="ms-Icon ms-Icon--Document ms-font-l file-icon"></i>
+                  <div class="file-details">
+                      <span class="file-name" id="protocol-file-name">filename.pdf</span>
+                      <span class="file-status" id="protocol-file-status">✅ Uploaded successfully</span>
+                  </div>
+                  <div class="file-actions">
+                      <div class="ms-Button ms-Button--small" id="protocol-remove-btn">
+                          <span class="ms-Button-label">🗑️ Remove</span>
+                      </div>
+                  </div>
+              </div>
+          </div>
+      </div>
+
+      <!-- Step 4: Analysis Progress (deferred SDTM) -->
+      <div class="wizard-page" data-step="4" style="display: none;">
+        <h3 class="ms-font-l">🔎 Analyzing Protocol...</h3>
+        <p class="ms-font-s">We are running SDTM analysis based on your uploaded protocol. Please wait.</p>
+        <div class="ms-Spinner">
+          <div class="ms-Spinner-circle ms-Spinner-circle--large"></div>
+        </div>
+      </div>
+
+      <!-- Step 5: Project Selection Section -->
+      <div class="project-selection-section wizard-page" data-step="3" style="display: none;">
+          <h3 class="ms-font-l">🎯 Project Selection</h3>
+          <p class="ms-font-s">Please select the services you need (multiple selection allowed):</p>
+          <div class="project-options">
+              <div class="project-option">
+                  <input type="checkbox" id="project-1" class="ms-CheckBox-input" />
+                  <label for="project-1" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">Statistical Analysis Plan and Shells Development (2 Drafts and 1 Final)</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-2" class="ms-CheckBox-input" data-requires-count="sdtm-transfer" />
+                  <label for="project-2" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">SDTM Datasets Production and Validation</span>
+                  </label>
+                  <div class="count-input-container" id="sdtm-transfer-container" style="display: none;">
+                      <label class="count-label">Data Transfer Times:</label>
+                      <input type="number" id="sdtm-transfer-count" class="count-input ms-TextField-field" 
+                             min="1" max="999" placeholder="e.g. 5" />
+                      <span class="count-suffix">times</span>
+                  </div>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-3" class="ms-CheckBox-input" data-requires-count="adam-transfer" />
+                  <label for="project-3" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">ADaM Datasets Production and Validation</span>
+                  </label>
+                  <div class="count-input-container" id="adam-transfer-container" style="display: none;">
+                      <label class="count-label">Data Transfer Times:</label>
+                      <input type="number" id="adam-transfer-count" class="count-input ms-TextField-field" 
+                             min="1" max="999" placeholder="e.g. 3" />
+                      <span class="count-suffix">times</span>
+                  </div>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-4" class="ms-CheckBox-input" />
+                  <label for="project-4" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">Tables, Figures, and Listings Development</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-5" class="ms-CheckBox-input" />
+                  <label for="project-5" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">Interim Analysis</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-6" class="ms-CheckBox-input" />
+                  <label for="project-6" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">Final Analysis</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-7" class="ms-CheckBox-input" />
+                  <label for="project-7" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">DSUR First Time</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-8" class="ms-CheckBox-input" data-requires-count="dsur-rerun" />
+                  <label for="project-8" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">DSUR Rerun</span>
+                  </label>
+                  <div class="count-input-container" id="dsur-rerun-container" style="display: none;">
+                      <label class="count-label">Rerun Times:</label>
+                      <input type="number" id="dsur-rerun-count" class="count-input ms-TextField-field" 
+                             min="1" max="999" placeholder="e.g. 4" />
+                      <span class="count-suffix">times</span>
+                  </div>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-9" class="ms-CheckBox-input" />
+                  <label for="project-9" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">DSMB/IDMC First Time</span>
+                  </label>
+              </div>
+              <div class="project-option">
+                  <input type="checkbox" id="project-10" class="ms-CheckBox-input" data-requires-count="dsmb-rerun" />
+                  <label for="project-10" class="ms-CheckBox-label">
+                      <span class="ms-CheckBox-field"></span>
+                      <span class="ms-CheckBox-text">DSMB Rerun</span>
+                  </label>
+                  <div class="count-input-container" id="dsmb-rerun-container" style="display: none;">
+                      <label class="count-label">Rerun Times:</label>
+                      <input type="number" id="dsmb-rerun-count" class="count-input ms-TextField-field" 
+                             min="1" max="999" placeholder="e.g. 2" />
+                      <span class="count-suffix">times</span>
+                  </div>
+              </div>
+        </div>
+
+          <div class="auto-save-section">
+              <p class="auto-save-hint">💡 Your selection will be automatically saved when you proceed.</p>
+          </div>
+      </div>
+
+      <!-- Step 6: SDTM Analysis Results Section -->
+      <div class="sdtm-analysis-section wizard-page" id="sdtm-analysis-section" data-step="5" style="display: none;">
+        <h3 class="ms-font-l">📊 SDTM Analysis Results</h3>
+        
+        <div class="sdtm-summary" id="sdtm-summary">
+            <div class="summary-stats">
+                <div class="stat-item">
+                    <span class="stat-label">Procedures Found:</span>
+                    <span class="stat-value" id="total-procedures">0</span>
+                </div>
+                <div class="stat-item">
+                    <span class="stat-label">SDTM Domains Found:</span>
+                    <span class="stat-value" id="total-domains">0</span>
                 </div>
             </div>
-
-            <!-- Upload Result -->
-            <div class="upload-result" id="protocol-result" style="display: none;">
-                <div class="file-info">
-                    <i class="ms-Icon ms-Icon--Document ms-font-l file-icon"></i>
-                    <div class="file-details">
-                        <span class="file-name" id="protocol-file-name">filename.pdf</span>
-                        <span class="file-status" id="protocol-file-status">✅ Uploaded successfully</span>
-                    </div>
-                    <div class="file-actions">
-                        <div class="ms-Button ms-Button--small" id="protocol-remove-btn">
-                            <span class="ms-Button-label">🗑️ Remove</span>
-                        </div>
-                    </div>
-                </div>
+            <div class="domains-overview">
+                <span class="stat-label">Identified Domains:</span>
+                <div class="domains-list-overview" id="domains-list-overview"></div>
+            </div>
+            
+            <div class="domains-overview">
+                <span class="stat-label">High Complexity SDTM:</span>
+                <div class="domains-list-overview" id="high-complexity-domains"></div>
+            </div>
+            
+            <div class="domains-overview">
+                <span class="stat-label">Medium Complexity SDTM:</span>
+                <div class="domains-list-overview" id="medium-complexity-domains"></div>
             </div>
         </div>
 
-        <!-- Page 3: SDTM Analysis Results Section -->
-        <div class="sdtm-analysis-section wizard-page" id="sdtm-analysis-section" data-step="3" style="display: none;">
-            <h3 class="ms-font-l">📊 SDTM Analysis Results</h3>
-            
-            <!-- Analysis Summary -->
-            <div class="sdtm-summary" id="sdtm-summary">
-                <div class="summary-stats">
-                    <div class="stat-item">
-                        <span class="stat-label">Procedures Found:</span>
-                        <span class="stat-value" id="total-procedures">0</span>
-                    </div>
-                    <div class="stat-item">
-                        <span class="stat-label">SDTM Domains Found:</span>
-                        <span class="stat-value" id="total-domains">0</span>
-                    </div>
-                </div>
-                <div class="domains-overview">
-                    <span class="stat-label">Identified Domains:</span>
-                    <div class="domains-list-overview" id="domains-list-overview"></div>
-                </div>
-                
-                <!-- High Complexity SDTM -->
-                <div class="domains-overview">
-                    <span class="stat-label">High Complexity SDTM:</span>
-                    <div class="domains-list-overview" id="high-complexity-domains"></div>
-                </div>
-                
-                <!-- Medium Complexity SDTM -->
-                <div class="domains-overview">
-                    <span class="stat-label">Medium Complexity SDTM:</span>
-                    <div class="domains-list-overview" id="medium-complexity-domains"></div>
+        <div class="sdtm-status" id="sdtm-status" style="display: none;">
+            <i class="ms-Icon ms-Icon--Info"></i>
+            <span id="sdtm-status-text">Analyzing procedures...</span>
+        </div>
+
+        <div class="sdtm-mappings-container" id="sdtm-mappings-container" style="display: none;">
+            <div class="mappings-header">
+                <h4 class="ms-font-m">Procedure → SDTM Domain Mappings</h4>
+                <div class="mappings-actions">
+                    <button class="ms-Button ms-Button--small" id="edit-mappings-btn">
+                        <span class="ms-Button-label">Edit</span>
+                    </button>
+                    <button class="ms-Button ms-Button--primary" id="confirm-mappings-btn">
+                        <span class="ms-Button-label">Confirm & Save</span>
+                    </button>
                 </div>
             </div>
             
-            <!-- Analysis Status/Error Message -->
-            <div class="sdtm-status" id="sdtm-status" style="display: none;">
-                <i class="ms-Icon ms-Icon--Info"></i>
-                <span id="sdtm-status-text">Analyzing procedures...</span>
+            <div class="flat-mappings-list" id="flat-mappings-list"></div>
+            
+            <div class="confirmation-status" id="confirmation-status" style="display: none;">
+                <i class="ms-Icon ms-Icon--CheckMark"></i>
+                <span>SDTM Analysis Confirmed and Saved</span>
+            </div>
+        </div>
+            </div>
+
+        <!-- Step 7: Completion Confirmation -->
+        <div class="wizard-page" data-step="6" style="display: none;">
+          <div class="completion-confirmation-section">
+            <div class="completion-icon">
+              <span class="ms-Icon ms-Icon--CheckMark" style="font-size: 48px; color: #28a745;"></span>
             </div>
             
-            <!-- Procedure-Domain Mappings (Main Content) -->
-            <div class="sdtm-mappings-container" id="sdtm-mappings-container" style="display: none;">
-                <div class="mappings-header">
-                    <h4 class="ms-font-m">Procedure → SDTM Domain Mappings</h4>
-                    <div class="mappings-actions">
-                        <button class="ms-Button ms-Button--small" id="edit-mappings-btn">
-                            <span class="ms-Button-label">Edit</span>
-                        </button>
-                        <button class="ms-Button ms-Button--primary" id="confirm-mappings-btn">
-                            <span class="ms-Button-label">Confirm & Save</span>
-                        </button>
-                    </div>
-                </div>
-                
-                <!-- 平铺式一对多映射列表 -->
-                <div class="flat-mappings-list" id="flat-mappings-list">
-                    <!-- 动态生成的映射行将在这里显示 -->
-                </div>
-                
-                <!-- Confirmation Status -->
-                <div class="confirmation-status" id="confirmation-status" style="display: none;">
-                    <i class="ms-Icon ms-Icon--CheckMark"></i>
-                    <span>SDTM Analysis Confirmed and Saved</span>
-                </div>
+            <h3 class="completion-title">Analysis Complete!</h3>
+            
+            <div class="completion-message">
+              <p>🎉 All the analysis are done successfully!</p>
+              <p>Your cost estimation and SDTM mapping have been completed and saved to Excel.</p>
+              <p>Click "Done" to confirm completion and start a new project.</p>
             </div>
+            
+            <div class="completion-summary">
+              <h4>What happens next:</h4>
+              <ul>
+                <li>✅ Excel file will be saved to your local machine</li>
+                <li>✅ Current Excel content will be cleared</li>
+                <li>✅ System will reset for a new project</li>
+              </ul>
+            </div>
+          </div>
         </div>
 
         <!-- Status Messages -->

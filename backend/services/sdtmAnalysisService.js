@@ -108,15 +108,15 @@ async function analyzeSDTMMapping(procedures) {
       };
     }
     
-    // 构建GPT prompt
-    const prompt = `你是一个临床试验数据标准(CDISC SDTM)专家。我有一个来自Clinical Protocol中Schedule of Assessment的procedure列表，请分析每个procedure分别对应哪些SDTM域。
+    // Build GPT prompt
+    const prompt = `You are a clinical trial data standards (CDISC SDTM) expert. I have a list of procedures from the Schedule of Assessment in a Clinical Protocol. Please analyze which SDTM domains each procedure corresponds to.
 
-🔥 重要要求：你必须为下面列表中的每一个procedure都提供SDTM域映射，不允许跳过任何一个。即使某个procedure看起来不像标准的医学程序，你也必须基于其内容选择最合适的SDTM域。
+🔥 CRITICAL REQUIREMENT: You must provide SDTM domain mapping for every single procedure in the list below. Do not skip any. Even if a procedure doesn't look like a standard medical procedure, you must select the most appropriate SDTM domain based on its content.
 
-Procedure列表：
+Procedure List:
 ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
 
-请基于CDISC SDTM标准分析，常见的SDTM域包括：
+Please analyze based on CDISC SDTM standards. Common SDTM domains include:
 - AE (Adverse Events)
 - CM (Concomitant Medications)
 - DM (Demographics)
@@ -135,38 +135,38 @@ ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
 - FA (Findings About)
 - IE (Inclusion/Exclusion)
 
-🔥 映射与复杂度规则：
-1. 每个procedure都应该是标准的医学程序或评估活动
-2. 基于procedure的医学含义，映射到最合适的SDTM域
-3. 为每个procedure评估复杂度等级：
-   - High Complexity: 复杂的实验室检测、多参数生物标志物、复杂的问卷评估、特殊的医学检查等
-   - Medium Complexity: 标准的体格检查、基础生命体征、常规实验室检测、标准药物给药等
-4. 复杂度统计的域级互斥原则（非常重要）：
-   - 请在summary中按“域（domain）”去重后统计复杂度集合。
-   - 若同一个域在不同procedures中同时被标注为High与Medium，请将该域归入High集合（High覆盖Medium）。
-   - 最终 High 与 Medium 两个集合在域级别必须互斥，且它们的并集大小必须等于 unique_domains 的长度。
-   - 同时，total_sdtm_domains 必须等于 unique_domains 的长度，且等于 High 与 Medium 两个集合并集的大小。
+🔥 MAPPING AND COMPLEXITY RULES:
+1. Each procedure should be a standard medical procedure or assessment activity
+2. Based on the medical meaning of the procedure, map to the most appropriate SDTM domain
+3. Assess complexity level for each procedure:
+   - High Complexity: Complex laboratory tests, multi-parameter biomarkers, complex questionnaire assessments, special medical examinations, etc.
+   - Medium Complexity: Standard physical examinations, basic vital signs, routine laboratory tests, standard drug administration, etc.
+4. Domain-level mutual exclusivity principle for complexity statistics (VERY IMPORTANT):
+   - Please deduplicate by "domain" in the summary when counting complexity sets.
+   - If the same domain is marked as both High and Medium across different procedures, assign that domain to the High set (High overrides Medium).
+   - The final High and Medium sets must be mutually exclusive at the domain level, and their union size must equal the length of unique_domains.
+   - Also, total_sdtm_domains must equal the length of unique_domains and equal the size of the union of High and Medium sets.
 
-请返回JSON格式，确保mappings数组包含exactly ${procedures.length}个条目（每个procedure一个）：
+Please return JSON format, ensuring the mappings array contains exactly ${procedures.length} entries (one per procedure):
 {
   "mappings": [
     {
-      "procedure": "完全匹配的procedure名称", 
-      "sdtm_domains": ["相应的域"],
-      "complexity": "High"或"Medium"
+      "procedure": "exact matching procedure name", 
+      "sdtm_domains": ["corresponding domains"],
+      "complexity": "High" or "Medium"
     }
   ],
   "summary": {
     "total_procedures": ${procedures.length},
-    "total_sdtm_domains": "unique_domains数组的长度（去重后的唯一域数量）",
-    "unique_domains": ["所有不重复的域列表"],
+    "total_sdtm_domains": "length of unique_domains array (deduplicated unique domain count)",
+    "unique_domains": ["list of all non-duplicate domains"],
     "highComplexitySdtm": {
-      "count": "高复杂度域的数量（互斥，按域去重，并与Medium不重叠）",
-      "domains": ["高复杂度域列表（去重）"]
+      "count": "number of high complexity domains (mutually exclusive, deduplicated by domain, no overlap with Medium)",
+      "domains": ["list of high complexity domains (deduplicated)"]
     },
     "mediumComplexitySdtm": {
-      "count": "中复杂度域的数量（互斥，按域去重，并与High不重叠）", 
-      "domains": ["中复杂度域列表（去重）"]
+      "count": "number of medium complexity domains (mutually exclusive, deduplicated by domain, no overlap with High)", 
+      "domains": ["list of medium complexity domains (deduplicated)"]
     }
   }
 }`;

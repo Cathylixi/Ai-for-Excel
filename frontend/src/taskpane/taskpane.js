@@ -11,21 +11,598 @@ const API_BASE_URL = 'https://localhost:4000';
 // 全局变量
 let uploadedProtocol = null;
 
+// Excel状态缓存系统 - 用于Back导航时恢复Excel内容
+let excelStateCache = {
+  step1: null,   // AI Assistant (空白状态)
+  step2: null,   // Upload完成后（通常对Excel无改动）
+  step3: null,   // Project Selection完成后 + Excel Headers
+  step4: null,   // Analysis Progress（占位）
+  step5: null,   // SDTM Analysis结果页
+  step6: null    // 完成确认页（占位）
+};
+
+// 🔄 Excel变化监听和数据同步
+let isTrackingChanges = false;
+let changeTimeout = null;
+
+async function initExcelChangeTracking() {
+  try {
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet();
+      
+      // 监听单元格变化事件（使用事件参数的 address/worksheetId 获取 Range）
+      worksheet.onChanged.add(async (args) => {
+        try {
+          await Excel.run(async (innerContext) => {
+            const sheet = innerContext.workbook.worksheets.getItem(args.worksheetId);
+            const changedRange = sheet.getRange(args.address);
+            changedRange.load([ 'columnIndex', 'columnCount' ]);
+            await innerContext.sync();
+            
+            // 是否包含B列？
+            const startCol = changedRange.columnIndex; // 0-based
+            const endCol = startCol + changedRange.columnCount - 1;
+            const includesB = (startCol <= 1 && endCol >= 1);
+            if (!includesB) return;
+            
+            // 防抖保存
+            if (changeTimeout) { clearTimeout(changeTimeout); }
+            changeTimeout = setTimeout(async () => {
+              await saveExcelChangesToDatabase();
+            }, 1000);
+          });
+        } catch (err) {
+          console.error('❌ Excel onChanged 处理失败:', err);
+        }
+      });
+      
+      await context.sync();
+      console.log('✅ Excel变化监听已启用');
+    });
+  } catch (error) {
+    console.error('❌ 初始化Excel变化监听失败:', error);
+  }
+}
+
+
+async function saveExcelChangesToDatabase() {
+  if (!window.currentDocumentId) {
+    console.warn('⚠️ 没有有效的文档ID，跳过保存');
+    return;
+  }
+  
+  try {
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet();
+      const usedRange = worksheet.getUsedRange();
+      usedRange.load(['values', 'rowIndex', 'columnIndex']);
+      await context.sync();
+      
+      const rows = usedRange.values;
+      const updatedUnits = {};
+      
+      // 提取所有Unit值（B列）
+      for (let r = 0; r < rows.length; r++) {
+        const taskName = String(rows[r][0] || '').trim();
+        const unitValue = rows[r][1]; // B列
+        
+        if (taskName && unitValue !== undefined && unitValue !== '') {
+          // 映射任务名称到key
+          const taskKey = getTaskKeyFromName(taskName);
+          if (taskKey) {
+            updatedUnits[taskKey] = Number(unitValue) || 0;
+          }
+        }
+      }
+      
+      // 发送到后端保存（可并发更新）
+      const response = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/update-units`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ units: updatedUnits })
+      });
+      
+      const result = await response.json();
+      if (result.success) {
+        console.log('✅ Excel Unit变化已同步到数据库');
+        showStatusMessage('Units updated and saved automatically!', 'success');
+      } else {
+        console.warn('⚠️ 保存Unit变化失败:', result.message);
+      }
+    });
+  } catch (error) {
+    console.error('❌ 保存Excel变化到数据库失败:', error);
+    showStatusMessage('Failed to save changes: ' + error.message, 'error');
+  }
+}
+
+// 辅助函数：从任务名称获取对应的key
+function getTaskKeyFromName(taskName) {
+  const taskMapping = {
+    // SDTM family (match the exact row titles we render in Excel)
+    'SDTM Annotated CRFs (aCRF)': 'annotatedCrf',
+    'SDTM Dataset Specs (High Complexity)': 'specsHigh',
+    'SDTM Dataset Specs (Medium Complexity)': 'specsMedium',
+    'SDTM Production and Validation: Programs and Datasets (High Complexity)': 'prodHigh',
+    'SDTM Production and Validation: Programs and Datasets (Medium Complexity)': 'prodMedium',
+    'SDTM Pinnacle 21 Report Creation and Review': 'pinnacle21',
+    "SDTM Reviewer's Guide": 'reviewersGuide',
+    'SDTM Define.xml': 'defineXml',
+    'SDTM Dataset File xpt Conversion and Review': 'xptConversion',
+
+    // ADaM family
+    'ADaM Dataset Specs (High Complexity)': 'adam_specs_high',
+    'ADaM Dataset Specs (Medium Complexity)': 'adam_specs_medium',
+    'ADaM Production and Validation: Programs and Datasets (High Complexity)': 'adam_prod_high',
+    'ADaM Production and Validation: Programs and Datasets (Medium Complexity)': 'adam_prod_medium',
+    'ADaM Pinnacle 21 Report Creation and Review': 'adam_pinnacle21',
+    'ADaM Review\'s Guide': 'adam_reviewersGuide',
+    'ADaM Define.xml': 'adam_defineXml',
+    'ADaM Dataset Program xpt Conversion and Review': 'adam_xptConversion',
+    'ADaM Program txt Conversion and Review': 'adam_txtConversion',
+
+    // Other analysis tasks
+    'Statistical Analysis Plan Draft 1': 'sap_draft1',
+    'Statistical Analysis Plan Draft 2': 'sap_draft2',
+    'Statistical Analysis Plan Final': 'sap_final',
+    'Analysis Shells Development': 'analysis_shells',
+    'Mock Tables, Listings, and Figures': 'mock_tlfs',
+
+    // Generic fallbacks (legacy)
+    'Statistical Analysis Plan (SAP)': 'sap',
+    'Tables, Listings, and Figures (TLFs)': 'tlfs',
+    'Interim Analysis': 'interim_analysis',
+    'Final Analysis': 'final_analysis',
+    'CDISC Data Transfer to Sponsor': 'data_transfer'
+  };
+  
+  return taskMapping[taskName] || null;
+}
+
+// 🔄 Excel状态管理函数
+async function cacheExcelState(stepNumber) {
+  try {
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet();
+      const usedRange = worksheet.getUsedRange();
+      
+      if (usedRange) {
+        usedRange.load(['values', 'formulas', 'format/fill/color', 'format/font', 'format/borders', 'format/numberFormat']);
+        await context.sync();
+        
+        // 缓存Excel内容和格式
+        excelStateCache[`step${stepNumber}`] = {
+          values: usedRange.values,
+          formulas: usedRange.formulas,
+          rowCount: usedRange.rowCount,
+          columnCount: usedRange.columnCount,
+          cached: true,
+          timestamp: new Date().toISOString()
+        };
+        
+        console.log(`✅ Excel状态已缓存到 step${stepNumber}:`, excelStateCache[`step${stepNumber}`]);
+      } else {
+        // 空白状态
+        excelStateCache[`step${stepNumber}`] = {
+          isEmpty: true,
+          cached: true,
+          timestamp: new Date().toISOString()
+        };
+        console.log(`✅ 空白Excel状态已缓存到 step${stepNumber}`);
+      }
+    });
+  } catch (error) {
+    console.error(`❌ 缓存Excel状态失败 (step${stepNumber}):`, error);
+  }
+}
+
+async function restoreExcelState(stepNumber) {
+  try {
+    const cachedState = excelStateCache[`step${stepNumber}`];
+    if (!cachedState || !cachedState.cached) {
+      console.log(`⚠️ 没有找到 step${stepNumber} 的缓存状态`);
+      return;
+    }
+    
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet();
+      
+      // 先清空当前内容
+      const usedRange = worksheet.getUsedRange();
+      if (usedRange) {
+        usedRange.clear();
+        await context.sync();
+      }
+      
+      if (cachedState.isEmpty) {
+        // 恢复空白状态
+        console.log(`✅ 已恢复空白Excel状态 (step${stepNumber})`);
+        return;
+      }
+      
+      // 恢复缓存的内容
+      if (cachedState.values && cachedState.values.length > 0) {
+        const range = worksheet.getRangeByIndexes(0, 0, cachedState.rowCount, cachedState.columnCount);
+        
+        // 恢复数值和公式
+        if (cachedState.formulas) {
+          range.formulas = cachedState.formulas;
+        } else {
+          range.values = cachedState.values;
+        }
+        
+        await context.sync();
+        console.log(`✅ 已恢复Excel状态到 step${stepNumber}`);
+      }
+    });
+    
+    showStatusMessage(`Excel content restored to Step ${stepNumber} state.`, 'success');
+  } catch (error) {
+    console.error(`❌ 恢复Excel状态失败 (step${stepNumber}):`, error);
+    showStatusMessage(`Failed to restore Excel state: ${error.message}`, 'error');
+  }
+}
+
 // Wizard state
-let currentWizardStep = 1; // 1: Project Selection, 2: Upload, 3: SDTM
+let currentWizardStep = 1; // 1: Welcome, 2: Resume, 3: Project, 4: Upload, 5: SDTM
 
 function initWizard() {
   const backBtn = document.getElementById('wizard-back-btn');
   const nextBtn = document.getElementById('wizard-next-btn');
   backBtn.addEventListener('click', async () => {
-    if (currentWizardStep > 1) {
-      showStep(currentWizardStep - 1);
+    // 智能Back导航：跳过被删除的Step 2，同时恢复Excel状态
+    let targetStep = null;
+    
+    if (currentWizardStep === 2) {
+      targetStep = 1;  // Upload → AI
+    } else if (currentWizardStep === 3) {
+      targetStep = 2;  // Project Selection → Upload
+    } else if (currentWizardStep === 4) {
+      targetStep = 3;  // Analysis Progress → Project Selection（进度页返回上一步）
+    } else if (currentWizardStep === 5) {
+      targetStep = 3;  // Results → Project Selection（跳过进度页）
+    } else if (currentWizardStep === 6) {
+      targetStep = 5;  // Completion → Results
+    } else if (currentWizardStep > 1) {
+      targetStep = currentWizardStep - 1;
+    }
+    
+    if (targetStep) {
+      // 先恢复Excel状态，再切换页面
+      await restoreExcelState(targetStep);
+      showStep(targetStep);
     }
   });
-  nextBtn.addEventListener('click', async () => {
-    await handleNext();
+  nextBtn.addEventListener('click', async () => { await handleNext(); });
+  
+  // 初始化聊天界面
+  initChatInterface();
+  
+  showStep(1);
+}
+
+// 初始化聊天界面
+function initChatInterface() {
+  const chatInput = document.getElementById('chat-input');
+  const chatSendBtn = document.getElementById('chat-send-btn');
+  
+  if (chatInput && chatSendBtn) {
+    // 发送按钮点击事件
+    chatSendBtn.addEventListener('click', handleChatSend);
+    
+    // 输入框回车事件
+    chatInput.addEventListener('keypress', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        handleChatSend();
+      }
+    });
+    
+    // 输入框焦点事件
+    chatInput.addEventListener('input', () => {
+      const sendBtn = document.getElementById('chat-send-btn');
+      const hasText = chatInput.value.trim().length > 0;
+      sendBtn.disabled = !hasText;
+    });
+  }
+}
+
+// 最近一次解析结果
+let lastParsedCommand = null;
+
+// 处理聊天发送（调用后端解析 → 确认 → 查库 → 导航）
+async function handleChatSend() {
+  const chatInput = document.getElementById('chat-input');
+  const userMessage = chatInput.value.trim();
+  if (!userMessage) return;
+
+  addChatMessage(userMessage, 'user');
+  chatInput.value = '';
+  document.getElementById('chat-send-btn').disabled = true;
+
+  // 检查是否在等待确认状态
+  if (window.pendingConfirmation) {
+    await handleConfirmationResponse(userMessage);
+    return;
+  }
+
+  showTypingIndicator();
+  try {
+    const parsed = await callAssistantParseCommand(userMessage);
+    hideTypingIndicator();
+
+    if (!parsed || (!parsed.studyIdentifier && !parsed.matchedTask)) {
+      // 检查是否是通用的"开始新项目"请求
+      if (userMessage.toLowerCase().includes('start') || userMessage.toLowerCase().includes('new project') || userMessage.toLowerCase().includes('upload')) {
+        addChatMessage("Let me take you to start a new project by uploading your protocol.", 'ai');
+        await delayedNavigation(3);
+        return;
+      }
+      addChatMessage("I couldn't understand the study number or task. Supported tasks are: Cost Estimate, SAS Analysis. Please try e.g. 'I want to do Cost Estimate for study SK123-KBI', or say 'start new project'.", 'ai');
+      return;
+    }
+
+    lastParsedCommand = parsed;
+    const studyText = parsed.studyIdentifier ? parsed.studyIdentifier : '(study number not provided)';
+    const taskText = parsed.matchedTask ? parsed.matchedTask.name : '(task not recognized)';
+    askForConfirmation(studyText, taskText, parsed.matchedTask ? parsed.matchedTask.key : null);
+      } catch (e) {
+      hideTypingIndicator();
+      addChatMessage('Sorry, parsing failed. Please try again, or say "start new project" to proceed with upload.', 'ai');
+    }
+}
+
+async function callAssistantParseCommand(text) {
+  const resp = await fetch(`${API_BASE_URL}/api/v2/parse-command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text })
   });
-  showStep(currentWizardStep);
+  if (!resp.ok) throw new Error('parse failed');
+  const data = await resp.json();
+  return data?.data || null;
+}
+
+function askForConfirmation(studyIdentifier, taskName, taskKey) {
+  const msg = `Did you mean you want ${taskName} for study ${studyIdentifier}?`;
+  addChatMessage(msg, 'ai');
+  
+  // 设置等待确认状态
+  window.pendingConfirmation = {
+    studyIdentifier,
+    taskName,
+    taskKey
+  };
+}
+
+async function handleConfirmationResponse(userMessage) {
+  showTypingIndicator();
+  
+  try {
+    // 调用AI解析用户的Yes/No意向
+    const intent = await parseYesNoIntent(userMessage);
+    hideTypingIndicator();
+    
+    if (intent === 'yes') {
+      const { studyIdentifier, taskKey } = window.pendingConfirmation;
+      if (!taskKey) {
+        addChatMessage('Task not recognized. Supported tasks: Cost Estimate, SAS Analysis. Please rephrase your request.', 'ai');
+        window.pendingConfirmation = null;
+        return;
+      }
+      
+      showTypingIndicator();
+      try {
+        const lookup = await callAssistantLookupStudyTask(studyIdentifier, taskKey);
+        hideTypingIndicator();
+        window.pendingConfirmation = null;
+        await handleLookupResult(lookup);
+      } catch (err) {
+        hideTypingIndicator();
+        addChatMessage('Lookup failed. Let me take you to start a new project.', 'ai');
+        window.pendingConfirmation = null;
+        await delayedNavigation(3);
+      }
+    } else if (intent === 'no') {
+      window.pendingConfirmation = null;
+      addChatMessage("Please tell me again what you want to do. For example: 'I want to do Cost Estimate for study SK123-KBI'.", 'ai');
+    } else {
+      addChatMessage("I couldn't understand if you meant yes or no. Please respond with something like 'yes', 'no', 'correct', or 'not correct'.", 'ai');
+    }
+  } catch (e) {
+    hideTypingIndicator();
+    addChatMessage("Sorry, I couldn't process your response. Please say 'yes' or 'no'.", 'ai');
+  } finally {
+    document.getElementById('chat-send-btn').disabled = false;
+  }
+}
+
+async function parseYesNoIntent(text) {
+  const resp = await fetch(`${API_BASE_URL}/api/v2/parse-command`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ 
+      text: `Parse this as yes/no intent: "${text}". Return only "yes", "no", or "unclear".`,
+      type: 'yesno_intent'
+    })
+  });
+  
+  if (!resp.ok) throw new Error('Intent parsing failed');
+  const data = await resp.json();
+  
+  // 简单的客户端解析作为备选
+  const lowerText = text.toLowerCase().trim();
+  
+  // 各种Yes的表达方式
+  const yesPatterns = [
+    'yes', 'y', 'yeah', 'yep', 'correct', 'right', 'true', 'ok', 'okay', 
+    'sure', 'exactly', 'that\'s right', 'confirm', 'confirmed', 'agreed'
+  ];
+  
+  // 各种No的表达方式  
+  const noPatterns = [
+    'no', 'n', 'nope', 'wrong', 'incorrect', 'false', 'not right', 
+    'not correct', 'that\'s wrong', 'cancel', 'redo'
+  ];
+  
+  if (yesPatterns.some(pattern => lowerText.includes(pattern))) {
+    return 'yes';
+  } else if (noPatterns.some(pattern => lowerText.includes(pattern))) {
+    return 'no';
+  }
+  
+  return 'unclear';
+}
+
+async function callAssistantLookupStudyTask(studyIdentifier, taskKey) {
+  const resp = await fetch(`${API_BASE_URL}/api/v2/lookup-study-task`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ studyIdentifier, taskKey })
+  });
+  if (!resp.ok) throw new Error('lookup failed');
+  const data = await resp.json();
+  return data?.data || null;
+}
+
+async function handleLookupResult(data) {
+  if (!data || data.foundStudy === false) {
+    addChatMessage("We could not find any records for this study. Let me take you to start a new one.", 'ai');
+    await delayedNavigation(3);
+    return;
+  }
+
+  // foundStudy === true
+  if (data.isUnfinished === true && data.documentId) {
+    addChatMessage(`I found an unfinished '${data.taskName}' for study '${data.studyNumber}'. Loading it now...`, 'ai');
+    window.currentDocumentId = data.documentId;
+    await saveDocumentIdToSettings(data.documentId);
+    await delayedNavigationWithCallback(5, async () => {
+      await restoreApplicationState(data.documentId);
+    });
+    return;
+  }
+
+  addChatMessage("We could not check unfinished project for this study. Let me take you to start a new one.", 'ai');
+  await delayedNavigation(3);
+}
+
+// 延迟跳转功能（带视觉提示）
+async function delayedNavigation(targetStep, delayMs = 2000) {
+  // 等待AI消息显示完整
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+  
+  // 显示准备跳转的提示
+  const countdownDiv = document.createElement('div');
+  countdownDiv.className = 'message ai-message';
+  countdownDiv.innerHTML = `<div class="message-content" style="font-style: italic; color: #666; border: 1px solid #e0e0e0; background-color: #f8f9fa; padding: 8px; border-radius: 6px;">Preparing to redirect...</div>`;
+  
+  const chatMessages = document.getElementById('chat-messages');
+  chatMessages.appendChild(countdownDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  // 等待1秒后跳转
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  countdownDiv.remove();
+  showStep(targetStep);
+}
+
+// 延迟跳转功能（带回调函数）
+async function delayedNavigationWithCallback(targetStep, callback, delayMs = 2000) {
+  // 等待AI消息显示完整
+  await new Promise(resolve => setTimeout(resolve, delayMs));
+  
+  // 显示准备加载的提示
+  const countdownDiv = document.createElement('div');
+  countdownDiv.className = 'message ai-message';
+  countdownDiv.innerHTML = `<div class="message-content" style="font-style: italic; color: #666; border: 1px solid #e0e0e0; background-color: #f8f9fa; padding: 8px; border-radius: 6px;">Loading previous work...</div>`;
+  
+  const chatMessages = document.getElementById('chat-messages');
+  chatMessages.appendChild(countdownDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  
+  // 等待1秒后执行回调和跳转
+  await new Promise(resolve => setTimeout(resolve, 1000));
+  countdownDiv.remove();
+  
+  if (callback) await callback();
+  showStep(targetStep);
+}
+
+// 添加聊天消息
+function addChatMessage(message, sender) {
+  const chatMessages = document.getElementById('chat-messages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = `message ${sender}-message`;
+  
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'message-content';
+  
+  contentDiv.textContent = message;
+  
+  messageDiv.appendChild(contentDiv);
+  chatMessages.appendChild(messageDiv);
+  
+  // 滚动到底部
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// 显示打字指示器
+function showTypingIndicator() {
+  const chatMessages = document.getElementById('chat-messages');
+  const typingDiv = document.createElement('div');
+  typingDiv.className = 'message ai-message typing-indicator';
+  typingDiv.id = 'typing-indicator';
+  
+  const contentDiv = document.createElement('div');
+  contentDiv.className = 'message-content';
+  contentDiv.innerHTML = '<strong>LLX AI:</strong> <span class="typing-dots">Thinking<span>.</span><span>.</span><span>.</span></span>';
+  
+  typingDiv.appendChild(contentDiv);
+  chatMessages.appendChild(typingDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// 隐藏打字指示器
+function hideTypingIndicator() {
+  const typingIndicator = document.getElementById('typing-indicator');
+  if (typingIndicator) {
+    typingIndicator.remove();
+  }
+}
+
+// 生成AI回复
+function generateAIResponse(userMessage) {
+  const lowerMessage = userMessage.toLowerCase();
+  
+  // 匹配研究类型关键词
+  if (lowerMessage.includes('phase') || lowerMessage.includes('study') || lowerMessage.includes('trial')) {
+    if (lowerMessage.includes('phase i') || lowerMessage.includes('phase 1')) {
+      return "Great! I understand you're working on a Phase I study. Phase I trials typically focus on safety and dosing. I'll help you set up a cost analysis that includes SDTM mapping, safety monitoring, and PK assessments. Click 'Next' to begin the protocol upload.";
+    } else if (lowerMessage.includes('phase ii') || lowerMessage.includes('phase 2')) {
+      return "Excellent! Phase II studies focus on efficacy while continuing safety monitoring. I'll guide you through setting up cost estimates for SDTM datasets, efficacy endpoints, and interim analyses. Click 'Next' to start with your protocol.";
+    } else if (lowerMessage.includes('phase iii') || lowerMessage.includes('phase 3')) {
+      return "Perfect! Phase III trials are large confirmatory studies. I'll help you plan for extensive SDTM/ADaM datasets, multiple interim analyses, and comprehensive safety reporting. Let's begin with uploading your protocol - click 'Next'.";
+    }
+  }
+  
+  // 匹配治疗领域
+  if (lowerMessage.includes('oncology') || lowerMessage.includes('cancer')) {
+    return "Oncology trials have specific requirements including tumor assessments, survival endpoints, and specialized SDTM domains like TU (Tumor Identification) and RS (Disease Response). I'll help you set up the appropriate cost structure. Click 'Next' to upload your protocol.";
+  }
+  
+  // 匹配SDTM相关
+  if (lowerMessage.includes('sdtm') || lowerMessage.includes('mapping')) {
+    return "SDTM mapping is crucial for regulatory submissions! I'll analyze your protocol's Schedule of Assessments and automatically map procedures to appropriate SDTM domains, then estimate the complexity and costs. Ready to start? Click 'Next' to upload your protocol.";
+  }
+  
+  // 匹配成本分析
+  if (lowerMessage.includes('cost') || lowerMessage.includes('estimate') || lowerMessage.includes('budget')) {
+    return "I'll help you create a comprehensive cost analysis including SDTM/ADaM production, statistical analysis plans, interim analyses, and data transfers. The system will automatically calculate costs based on your protocol complexity. Let's get started - click 'Next'!";
+  }
+  
+  // 通用回复
+  return "I understand you want to work on a clinical study project. I can help you with cost estimation, SDTM mapping, and data management planning. To get started, please click 'Next' to upload your protocol document, and I'll guide you through the entire process step by step.";
 }
 
 function showStep(step) {
@@ -35,29 +612,71 @@ function showStep(step) {
     const s = Number(p.getAttribute('data-step'));
     p.style.display = (s === step) ? 'block' : 'none';
   });
-  // 按钮可用性
+  
   const backBtn = document.getElementById('wizard-back-btn');
   const nextBtn = document.getElementById('wizard-next-btn');
-  backBtn.disabled = (step === 1);
-  nextBtn.disabled = false;
-  // Next 按钮文案
-  nextBtn.querySelector('.ms-Button-label').textContent = (step === 3) ? 'Done' : 'Next';
+  const navContainer = document.querySelector('.wizard-nav');
+  
+  if (step === 1) {
+    // Step 1 (AI Assistant): 隐藏所有导航按钮，强制通过聊天交互
+    if (navContainer) navContainer.style.display = 'none';
+  } else {
+    // 其他步骤：显示导航按钮
+    if (navContainer) navContainer.style.display = 'flex';
+    backBtn.disabled = (step === 1);  // 只有Step 1禁用Back按钮
+    nextBtn.disabled = false;
+    nextBtn.querySelector('.ms-Button-label').textContent = (step === 6) ? 'Done' : 'Next';
+  }
 }
+
+
 
 async function handleNext() {
   if (currentWizardStep === 1) {
-    const { projectSelectionDetails } = collectProjectSelectionDetails();
-    if (window.currentDocumentId) {
-      try { await saveProjectSelectionDetails(); } catch (e) { console.warn('保存项目选择失败但不阻塞进入下一步:', e); }
-    }
+    // Step1 → Step2 (Upload)
+    await cacheExcelState(1);
     showStep(2);
     return;
   }
   if (currentWizardStep === 2) {
+    // Step2 (Upload) → Step3 (Project Selection)
+    await cacheExcelState(2);
     if (!window.currentDocumentId) {
       showStatusMessage('Please upload a protocol document before proceeding.', 'error');
       return;
     }
+    showStep(3);
+    return;
+  }
+  if (currentWizardStep === 3) {
+    // Step3 (Project Selection) → Step4 (Analysis Progress) → 后台触发分析
+    await cacheExcelState(3);
+    if (window.currentDocumentId) {
+      try { await saveProjectSelectionDetails(); } catch (e) { console.warn('保存项目选择失败但不阻塞进入下一步:', e); }
+    }
+    await createStandardCostAnalysisHeaders();
+    await populateExcelWithSelectedProjects();
+
+    // 启动分析（显示分析进度页），完成后进入结果页
+    if (!window.currentDocumentId) {
+      showStatusMessage('Missing document id. Please upload again.', 'error');
+      return;
+    }
+    showStep(4);
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/analyze-sdtm`, { method: 'POST' });
+      const result = await resp.json();
+      if (result?.success) {
+        showStatusMessage('SDTM analysis completed.', 'success');
+      } else {
+        showStatusMessage('SDTM analysis failed or incomplete. You can review later.', 'error');
+      }
+    } catch (e) {
+      console.warn('分析触发失败:', e);
+      showStatusMessage('Failed to start analysis. You can review later.', 'error');
+    }
+
+    // 拉取最新文档内容并显示（若有）
     try {
       const response = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/content`);
       if (response.ok) {
@@ -74,12 +693,21 @@ async function handleNext() {
           }
         }
       }
-    } catch (e) { console.warn('进入Step3前获取SDTM失败:', e); }
-    showStep(3);
+    } catch (e) { console.warn('进入SDTM结果页前获取SDTM失败:', e); }
+
+    // Analysis完成 → 进入结果页（Step5）
+    showStep(5);
     return;
   }
-  if (currentWizardStep === 3) {
-    // 点击 Done：标记数据库 isCostEstimate = true
+  if (currentWizardStep === 5) {
+    // Step5 (Results) → Step6 (Completion)
+    await cacheExcelState(5);
+    showStep(6);
+    return;
+  }
+  if (currentWizardStep === 6) {
+    // Step6 Done：标记数据库 isCostEstimate = true，保存Excel，清空，回到开始
+    await cacheExcelState(6);
     if (!window.currentDocumentId) {
       showStatusMessage('Missing document id. Please upload again.', 'error');
       return;
@@ -88,7 +716,17 @@ async function handleNext() {
       const resp = await fetch(`${API_BASE_URL}/api/documents/${window.currentDocumentId}/mark-complete`, { method: 'PATCH' });
       const result = await resp.json();
       if (result?.success) {
-        showStatusMessage('Marked as completed. You can close the pane.', 'success');
+        showStatusMessage('Project completed! Saving Excel file and starting fresh...', 'success');
+        
+        // 保存Excel到本地
+        await saveExcelToLocal();
+        
+        // 清空Excel内容
+        await clearExcelContent();
+        
+        // 重置状态并回到开始页
+        await resetToStart();
+        
       } else {
         showStatusMessage('Failed to mark as completed: ' + (result?.message || ''), 'error');
       }
@@ -207,24 +845,22 @@ Office.onReady(async (info) => {
     document.getElementById("sideload-msg").style.display = "none";
     document.getElementById("app-body").style.display = "flex";
     
-    // 初始化向导
     initWizard();
-    
-    // 初始化文件上传功能
     initFileUpload();
-    
-    // 启动检查：是否存在未完成的study，并提供继续/新开选项
-    await checkAndOfferResume();
-    
-    // 🔄 检查并恢复之前的状态（保留现有逻辑作为兜底，不影响上面的 resume）
+    initExcelChangeTracking(); // 初始化Excel变化监听
+
+    // 兜底恢复：若文件设置已有documentId，在欢迎页直接恢复并跳转第5步
     try {
       const savedDocumentId = await loadDocumentIdFromSettings();
       if (savedDocumentId) {
-        console.log('🔄 检测到已保存的文档ID，正在恢复状态...');
         await restoreApplicationState(savedDocumentId);
+        showStep(5); // 结果页（新编号）
+      } else {
+        showStep(1);
       }
     } catch (error) {
       console.error('❌ 启动时恢复状态失败:', error);
+      showStep(1);
     }
   }
 });
@@ -287,78 +923,35 @@ function handleProtocolDrop(e) {
 
 
 
-// Protocol文件上传处理
+// Protocol文件上传处理（仅存储，不触发分析，也不立即填充Excel）
 async function handleProtocolUpload(file) {
   if (!file) return;
 
-  // 验证文件类型
-  const allowedTypes = [
-    'application/pdf',
-    'application/msword',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ];
-  
+  const allowedTypes = [ 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ];
   if (!allowedTypes.includes(file.type)) {
     showStatusMessage('Please select PDF or Word documents only', 'error');
     return;
   }
 
-  // 显示上传进度
   showProtocolProgress();
-  
   try {
-    // 创建FormData
     const formData = new FormData();
     formData.append('document', file);
-    formData.append('documentType', 'ClinicalProtocol'); // 明确标识为Clinical Protocol
+    formData.append('documentType', 'ClinicalProtocol');
 
-    // 上传文件
-    const response = await fetch(`${API_BASE_URL}/api/upload-document`, {
-      method: 'POST',
-      body: formData
-    });
-
-    if (!response.ok) {
-      throw new Error(`Upload failed: ${response.statusText}`);
-    }
-
+    const response = await fetch(`${API_BASE_URL}/api/upload-document`, { method: 'POST', body: formData });
+    if (!response.ok) { throw new Error(`Upload failed: ${response.statusText}`); }
     const result = await response.json();
-    
-    // 保存文件信息
-    uploadedProtocol = {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      uploadId: result.uploadId
-    };
 
-    // 存储文档ID用于后续的确认操作
+    uploadedProtocol = { name: file.name, size: file.size, type: file.type, uploadId: result.uploadId };
+
     if (result.uploadId) {
       window.currentDocumentId = result.uploadId;
-      
-      // 🔥 新增：将文档ID保存到Excel设置中实现持久化
       await saveDocumentIdToSettings(result.uploadId);
     }
-    
-    // 显示上传结果
+
     showProtocolResult(file);
-    
-    // 显示SDTM分析结果
-    if (result.sdtmAnalysis) {
-      displaySDTMAnalysis(result.sdtmAnalysis);
-    }
-    
-    showStatusMessage('Clinical Protocol uploaded successfully!', 'success');
-    
-    // 🔥 新增：自动保存项目选择详情（如果有选择的话）
-    await saveProjectSelectionDetails();
-    
-    // 🔥 新增：自动填写Excel表格的标准列标题
-    await createStandardCostAnalysisHeaders();
-    
-    // 🔥 新增：根据用户选择填写Excel任务列表
-    await populateExcelWithSelectedProjects();
-    
+    showStatusMessage('Clinical Protocol uploaded. Click Next to select projects.', 'success');
   } catch (error) {
     console.error('Protocol upload error:', error);
     showStatusMessage(`Upload failed: ${error.message}`, 'error');
@@ -509,7 +1102,7 @@ async function clearDocumentIdFromSettings() {
 async function restoreApplicationState(documentId) {
   try {
     window.currentDocumentId = documentId;
-    showStatusMessage('正在恢复数据状态...', 'info');
+    showStatusMessage('Restoring data state...', 'info');
     
     // 1. 获取文档数据
     const response = await fetch(`${API_BASE_URL}/api/documents/${documentId}/content`);
@@ -537,7 +1130,7 @@ async function restoreApplicationState(documentId) {
         
         // 显示SDTM分析结果
         displaySDTMAnalysis(currentSDTMData);
-        showStatusMessage('SDTM分析数据已恢复', 'success');
+        showStatusMessage('SDTM analysis data restored', 'success');
       }
     }
     
@@ -550,11 +1143,27 @@ async function restoreApplicationState(documentId) {
     await createStandardCostAnalysisHeaders();
     await populateExcelWithSelectedProjects();
     
-    showStatusMessage('所有数据状态已成功恢复！', 'success');
+    // 4.1 恢复已保存的 Units/Costs（优先使用用户在Excel中修改过的units，其次使用SDTM确认时的初始快照）
+    try {
+      const costEstimate = document?.costEstimate || {};
+      if (costEstimate && typeof costEstimate === 'object') {
+        if (costEstimate.units && Object.keys(costEstimate.units).length > 0) {
+          console.log('🔄 恢复用户最近在Excel修改过的 Units 到表格:', costEstimate.units);
+          await applyUnitsToExcel(costEstimate.units);
+        } else if (costEstimate['SDTM Datasets Production and Validation']) {
+          console.log('🔄 使用SDTM确认时的快照恢复 Units/Costs');
+          await applySDTMUnitsAndCostsToExcel(costEstimate['SDTM Datasets Production and Validation']);
+        }
+      }
+    } catch (e) {
+      console.warn('恢复Units/Costs到Excel时出现问题:', e);
+    }
+    
+    showStatusMessage('All data restored successfully!', 'success');
     
   } catch (error) {
     console.error('❌ 恢复应用状态失败:', error);
-    showStatusMessage('恢复数据状态失败: ' + error.message, 'error');
+    showStatusMessage('Failed to restore data: ' + error.message, 'error');
   }
 }
 
@@ -1136,43 +1745,59 @@ async function applySDTMUnitsAndCostsToExcel(snapshot) {
       const costs = snapshot.estimatedCosts || {};
       const subtotal = snapshot.subtotal ?? null;
 
-      // 写每个子项的 Unit/F
+      // 写每个子项的 Unit 并设置 Estimated Cost 公式
       for (let r = 0; r < rows.length; r++) {
         const task = String(rows[r][0] || '').trim();
         if (!taskToKey.hasOwnProperty(task)) continue;
         const key = taskToKey[task];
         const unitVal = units[key] ?? '';
-        const costVal = costs[key] ?? '';
 
         const unitCell = sheet.getRangeByIndexes(startRow + r, startCol + 1, 1, 1); // B
         const estCostCell = sheet.getRangeByIndexes(startRow + r, startCol + 5, 1, 1); // F
+        
+        // 写入Unit值
         unitCell.values = [[unitVal === '' ? '' : Number(unitVal)]];
         unitCell.format.horizontalAlignment = 'Right';
-        estCostCell.values = [[costVal === '' ? '' : `$${Number(costVal)}`]];
-        estCostCell.format.horizontalAlignment = 'Right';
+        
+        // 设置Estimated Cost公式 = Unit(B) × Rate(C) × Hours(D)
+        if (unitVal !== '') {
+          const rowNum = startRow + r + 1; // Excel行号从1开始
+          estCostCell.formulas = [[`=B${rowNum}*C${rowNum}*D${rowNum}`]];
+          estCostCell.format.numberFormat = [["$#,##0.00"]];
+          estCostCell.format.horizontalAlignment = 'Right';
+        } else {
+          estCostCell.values = [['']];
+        }
       }
 
-      // 定位SDTM主块后的Subtotal行，并写入小计
-      if (subtotal !== null) {
-        // 找到SDTM主标题行
-        let sdtmStartRow = -1;
-        for (let r = 0; r < rows.length; r++) {
-          const task = String(rows[r][0] || '').trim();
-          if (task.toLowerCase() === 'sdtm datasets production and validation') {
-            sdtmStartRow = r;
-            break;
-          }
+      // 定位SDTM主块后的Subtotal行，并设置SUM公式
+      // 找到SDTM主标题行
+      let sdtmStartRow = -1;
+      for (let r = 0; r < rows.length; r++) {
+        const task = String(rows[r][0] || '').trim();
+        if (task.toLowerCase() === 'sdtm datasets production and validation') {
+          sdtmStartRow = r;
+          break;
         }
-        if (sdtmStartRow >= 0) {
-          // 向下寻找第一个值为 'Subtotal' 的行
-          for (let r = sdtmStartRow + 1; r < rows.length; r++) {
-            const firstCell = String(rows[r][0] || '').trim();
-            if (firstCell.toLowerCase() === 'subtotal') {
-              const subtotalCell = sheet.getRangeByIndexes(startRow + r, startCol + 5, 1, 1); // F
-              subtotalCell.values = [[`$${Number(subtotal)}`]];
-              subtotalCell.format.horizontalAlignment = 'Right';
-              break;
-            }
+      }
+      if (sdtmStartRow >= 0) {
+        // 向下寻找第一个值为 'Subtotal' 的行
+        for (let r = sdtmStartRow + 1; r < rows.length; r++) {
+          const firstCell = String(rows[r][0] || '').trim();
+          if (firstCell.toLowerCase() === 'subtotal') {
+            const subtotalCell = sheet.getRangeByIndexes(startRow + r, startCol + 5, 1, 1); // F
+            
+            // 设置SUM公式来自动计算SDTM部分的小计
+            const subtotalRowNum = startRow + r + 1; // Excel行号（1-based）
+            const sdtmSectionStartRow = startRow + sdtmStartRow + 2; // Excel行号：标题下一行
+            const sdtmSectionEndRow = subtotalRowNum - 1; // Excel行号：Subtotal前一行
+            
+            // 从标题下一行到Subtotal前一行（避免包含Subtotal本身）
+            subtotalCell.formulas = [[`=SUM(F${sdtmSectionStartRow}:F${sdtmSectionEndRow})`]];
+            subtotalCell.format.numberFormat = [["$#,##0.00"]];
+            subtotalCell.format.horizontalAlignment = 'Right';
+            subtotalCell.format.font.bold = true;
+            break;
           }
         }
       }
@@ -1181,7 +1806,7 @@ async function applySDTMUnitsAndCostsToExcel(snapshot) {
       showStatusMessage('Units, estimated costs and subtotal applied from confirmed SDTM data.', 'success');
     });
   } catch (err) {
-    console.error('写入Excel的SDTM单元与成本失败:', err);
+    console.error('Failed to write SDTM units and costs:', err);
     showStatusMessage('Failed to write units/costs/subtotal to Excel: ' + err.message, 'error');
   }
 }
@@ -1222,7 +1847,7 @@ async function applySDTMNotesToExcel(sdtmInfo) {
       showStatusMessage('Notes updated from SDTM confirmed data.', 'success');
     });
   } catch (err) {
-    console.error('写入SDTM Notes失败:', err);
+    console.error('Failed to write SDTM notes:', err);
     showStatusMessage('Failed to write SDTM notes: ' + err.message, 'error');
   }
 }
@@ -1245,6 +1870,99 @@ function hideSDTMAnalysis() {
   window.currentDocumentId = null;
   isEditMode = false;
   selectedProcedureIndex = 0;
+}
+
+// 保存Excel到本地
+async function saveExcelToLocal() {
+  try {
+    await Excel.run(async (context) => {
+      const workbook = context.workbook;
+      
+      // 生成文件名
+      const now = new Date();
+      const timestamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const fileName = `LLX_Cost_Analysis_${timestamp}.xlsx`;
+      
+      // 保存工作簿
+      workbook.save();
+      await context.sync();
+      
+      console.log('✅ Excel文件已保存:', fileName);
+      showStatusMessage('Excel file saved successfully!', 'success');
+    });
+  } catch (error) {
+    console.error('❌ 保存Excel失败:', error);
+    showStatusMessage('Failed to save Excel: ' + error.message, 'error');
+  }
+}
+
+// 清空Excel内容
+async function clearExcelContent() {
+  try {
+    await Excel.run(async (context) => {
+      const worksheet = context.workbook.worksheets.getActiveWorksheet();
+      
+      // 获取已使用范围
+      const usedRange = worksheet.getUsedRange();
+      if (usedRange) {
+        usedRange.clear();
+        await context.sync();
+      }
+      
+      console.log('✅ Excel内容已清空');
+      showStatusMessage('Excel content cleared for new project!', 'success');
+    });
+  } catch (error) {
+    console.error('❌ 清空Excel失败:', error);
+    showStatusMessage('Failed to clear Excel: ' + error.message, 'error');
+  }
+}
+
+// 重置到开始状态
+async function resetToStart() {
+  try {
+    // 清除状态变量
+    uploadedProtocol = null;
+    window.currentDocumentId = null;
+    currentSDTMData = null;
+    isEditMode = false;
+    selectedProcedureIndex = 0;
+    
+    // 清除Excel设置
+    await clearDocumentIdFromSettings();
+    
+    // 重置项目选择状态
+    const checkboxes = document.querySelectorAll('.project-options input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+      checkbox.checked = false;
+      const dataAttr = checkbox.getAttribute('data-requires-count');
+      if (dataAttr) {
+        const container = document.getElementById(`${dataAttr}-container`);
+        const input = document.getElementById(`${dataAttr}-count`);
+        if (container) container.style.display = 'none';
+        if (input) input.value = '';
+      }
+    });
+    
+    // 重置上传界面
+    document.getElementById('protocol-upload-area').style.display = 'block';
+    document.getElementById('protocol-progress').style.display = 'none';
+    document.getElementById('protocol-result').style.display = 'none';
+    document.getElementById('protocol-file-input').value = '';
+    
+    // 隐藏SDTM分析
+    hideSDTMAnalysis();
+    
+    // 回到第1步
+    showStep(1);
+    
+    console.log('✅ 应用状态已重置');
+    showStatusMessage('Ready for new project!', 'success');
+    
+  } catch (error) {
+    console.error('❌ 重置状态失败:', error);
+    showStatusMessage('Failed to reset: ' + error.message, 'error');
+  }
 }
 
 // 🔥 新增：自动创建标准成本分析表格标题
@@ -1355,6 +2073,7 @@ async function populateExcelWithSelectedProjects() {
             projectNameRange.format.font.bold = true;
             projectNameRange.format.horizontalAlignment = "Left";
             currentRow++;
+            const sectionTitleRow = currentRow - 1; // 记录分节标题所在行（用于计算Subtotal范围）
 
             if (isSDTM) {
               const sdtmSubItems = [
@@ -1377,9 +2096,15 @@ async function populateExcelWithSelectedProjects() {
                   `$${subItem.costPerHour}`,
                   subItem.hoursPerUnit,
                   `$${subItem.costPerUnit}`,
-                  "", // Estimated Cost 留空
+                  "", // Estimated Cost 留空，将用公式计算
                   ""
                 ]];
+                
+                // 为Estimated Cost列(F)设置Excel公式：=B*C*D
+                const estimatedCostCell = worksheet.getRange(`F${currentRow}`);
+                estimatedCostCell.formulas = [[`=B${currentRow}*C${currentRow}*D${currentRow}`]];
+                estimatedCostCell.format.numberFormat = [["$#,##0.00"]];
+                
                 subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
@@ -1411,6 +2136,12 @@ async function populateExcelWithSelectedProjects() {
                   "",
                   ""
                 ]];
+                
+                // 为Estimated Cost列(F)设置Excel公式：=B*C*D
+                const estimatedCostCell = worksheet.getRange(`F${currentRow}`);
+                estimatedCostCell.formulas = [[`=B${currentRow}*C${currentRow}*D${currentRow}`]];
+                estimatedCostCell.format.numberFormat = [["$#,##0.00"]];
+                
                 subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
@@ -1428,6 +2159,12 @@ async function populateExcelWithSelectedProjects() {
               for (const subItem of sapSubItems) {
                 const subItemRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
                 subItemRange.values = [[subItem.name, "", `$${subItem.costPerHour}`, subItem.hoursPerUnit, `$${subItem.costPerUnit}`, "", ""]];
+                
+                // 为Estimated Cost列(F)设置Excel公式：=B*C*D
+                const estimatedCostCell = worksheet.getRange(`F${currentRow}`);
+                estimatedCostCell.formulas = [[`=B${currentRow}*C${currentRow}*D${currentRow}`]];
+                estimatedCostCell.format.numberFormat = [["$#,##0.00"]];
+                
                 subItemRange.format.font.bold = false;
                 subItemRange.format.horizontalAlignment = "Left";
                 const numberColumns = worksheet.getRange(`B${currentRow}:F${currentRow}`);
@@ -1436,9 +2173,27 @@ async function populateExcelWithSelectedProjects() {
               }
             }
 
-            // Subtotal for main section
+            // Subtotal for main section with Excel SUM formula
             const mainSubtotalRange = worksheet.getRange(`A${currentRow}:G${currentRow}`);
             mainSubtotalRange.values = [["Subtotal", "", "", "", "", "", ""]];
+            
+            // 计算当前部分的开始行（项目标题行+1）和结束行（当前行-1）
+            // 修正：sectionStartRow = 项目标题行的下一行；
+            // 由于我们每次进入该分节时先写了标题并 currentRow++，随后写了N个子项，再到此处写Subtotal，
+            // 此时 currentRow 指向Subtotal行，因此：
+            //   sectionEndRow = currentRow - 1（最后一个子项）
+            //   sectionStartRow = sectionEndRow - (子项数量 - 1)
+            // 这里不再用硬编码数量，改为从标题行缓存：
+            const subtotalRow = currentRow;
+            const lastItemRow = subtotalRow - 1;
+            const firstItemRow = (isSDTM || isADAM || isStatisticalAnalysisPlan) ? (sectionTitleRow + 1) : (sectionTitleRow + 1);
+            
+            // 为Subtotal的F列设置SUM公式
+            const subtotalCell = worksheet.getRange(`F${currentRow}`);
+            subtotalCell.formulas = [[`=SUM(F${firstItemRow}:F${lastItemRow})`]];
+            subtotalCell.format.numberFormat = [["$#,##0.00"]];
+            subtotalCell.format.font.bold = true;
+            
             mainSubtotalRange.format.font.bold = true;
             mainSubtotalRange.format.horizontalAlignment = "Right";
             currentRow++;
