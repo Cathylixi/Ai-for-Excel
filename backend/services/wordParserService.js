@@ -4,9 +4,9 @@ const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./open
 // const { performSDTMAnalysis } = require('./sdtmAnalysisService');
 
 // Word文档结构化解析函数 - 优化版（仅解析与存储，不进行SDTM分析）
-async function parseWordDocumentStructure(filePath) {
+async function parseWordDocumentStructure(fileBuffer) {
   try {
-    console.log('🔍 开始优化的结构化解析Word文档...');
+    console.log('🔍 开始从内存Buffer解析Word文档...');
     
     // 第1步：使用样式映射的HTML转换
     const styleMap = [
@@ -22,7 +22,7 @@ async function parseWordDocumentStructure(filePath) {
     ];
     
     const htmlResult = await mammoth.convertToHtml({ 
-      path: filePath,
+      buffer: fileBuffer,
       styleMap: styleMap
     });
     let htmlContent = htmlResult.value;
@@ -30,7 +30,7 @@ async function parseWordDocumentStructure(filePath) {
     console.log('✅ Word -> HTML 转换完成 (使用样式映射)');
     
     // 第2步：同时获取原始文本用于模式匹配
-    const rawTextResult = await mammoth.extractRawText({ path: filePath });
+    const rawTextResult = await mammoth.extractRawText({ buffer: fileBuffer });
     const extractedText = rawTextResult.value;
 
     // 提取Study Number（AI + 兜底）

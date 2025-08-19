@@ -1,11 +1,9 @@
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
 const { 
   uploadDocument, 
   getDocuments, 
   getDocumentContent, 
-  exportAssessmentSchedule,
   confirmSDTMAnalysis,
   updateProjectSelection,
   markCostEstimateDone,
@@ -16,9 +14,9 @@ const {
 
 const router = express.Router();
 
-// 配置文件上传
+// 配置文件上传 - 使用内存存储，不保存到硬盘
 const upload = multer({
-  dest: 'uploads/',
+  storage: multer.memoryStorage(), // 直接存储在内存中
   limits: {
     fileSize: 10 * 1024 * 1024 // 10MB限制
   },
@@ -31,11 +29,6 @@ const upload = multer({
     cb(null, allowedMimes.includes(file.mimetype));
   }
 });
-
-// 确保uploads目录存在
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
-}
 
 router.get('/test', (req, res) => {
   res.json({ success: true, message: '后端 API 连接成功！', data: { server: 'running', database: 'connected', databaseType: 'MongoDB Atlas' } });
@@ -56,8 +49,7 @@ router.get('/documents', getDocuments);
 // 获取特定文档的详细结构化内容 API
 router.get('/documents/:id/content', getDocumentContent);
 
-// 导出评估时间表为Excel文件 API
-router.get('/documents/:id/export-schedule', exportAssessmentSchedule);
+
 
 // 确认SDTM分析结果 API
 router.patch('/documents/:id/confirm-sdtm', confirmSDTMAnalysis);

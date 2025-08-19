@@ -153,42 +153,123 @@ async function extractStudyNumber(fullText) {
   try {
     if (!fullText || typeof fullText !== 'string') return null;
 
-    // 优先截取前面的文本（通常编号在首页/前几页）
-    const head = fullText.slice(0, 4000);
+    // 取前面的文本，但要包含足够的页面来识别重复pattern（增加到8000字符）
+    const head = fullText.slice(0, 8000);
 
-    const prompt = `You are a clinical protocol expert. Extract the unique study protocol identifier ("Study Number" / "Protocol Number") from the following text. 
-- It is usually an alphanumeric code like "SPI-GCF-301-PK".
-- Ignore IND numbers, drug codes, version numbers, dates.
-- If multiple candidates exist, pick the most likely global protocol identifier.
-- Return ONLY strict JSON: {"studyNumber": "<value>"}. If not found, return {"studyNumber":"N/A"}.
+    const prompt = `Extract study number and page header from this clinical protocol text:
+
+1. STUDY NUMBER: Find protocol/study identifier (like "SPI-611", "ABC-123")
+
+2. PAGE HEADER: Find text that repeats on every page
+   - May be single line or multiple lines
+   - Replace actual page numbers with PAGE_NUM
+   - Include exactly what repeats, nothing more or less
+
+Return ONLY valid JSON with curly braces:
+
+Examples:
+{"studyNumber": "XYZ-123", "headerPattern": "Study XYZ-123 Draft 2 Page PAGE_NUM of 30", "hasHeader": true}
+{"studyNumber": "DEF-456", "headerPattern": "Protocol DEF-456 Version 1.0 Page PAGE_NUM of 25\nConfidential Document", "hasHeader": true}  
+{"studyNumber": "GHI-789", "headerPattern": null, "hasHeader": false}
 
 TEXT:
 ${head}`;
 
+    console.log('🤖 ===== AI HEADER DETECTION START =====');
+    console.log(`🤖 Input text length: ${head.length} characters`);
+    console.log('🤖 Calling OpenAI GPT-4 for Study Number and Header detection...');
+    
     const resp = await openai.chat.completions.create({
       model: 'gpt-4',
       messages: [{ role: 'user', content: prompt }],
       temperature: 0.1,
-      max_tokens: 50
+      max_tokens: 200  // Increased for better header detection
     });
 
     const content = (resp.choices?.[0]?.message?.content || '').trim();
-    let studyNumber = null;
+    console.log(`🤖 AI raw response: ${content}`);
+    console.log('🤖 Parsing AI response...');
+    
+    let result = { studyNumber: null, headerInfo: null };
+    
     try {
       const json = JSON.parse(content);
-      studyNumber = (json && json.studyNumber) ? String(json.studyNumber).trim() : null;
+      
+      console.log('🤖 ===== AI JSON RESPONSE BREAKDOWN =====');
+      console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
+      console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
+      console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
+      console.log('🤖 ========================================');
+      
+      // Extract study number
+      result.studyNumber = (json && json.studyNumber && json.studyNumber !== 'N/A') 
+        ? String(json.studyNumber).trim() : null;
+      console.log(`🤖 Extracted Study Number: "${result.studyNumber}"`);
+      
+      // Extract header info
+      if (json && json.hasHeader && json.headerPattern) {
+        result.headerInfo = {
+          hasHeader: json.hasHeader,
+          headerPattern: json.headerPattern
+        };
+        console.log(`🤖 ✅ HEADER DETECTED!`);
+        console.log(`🤖 Header Pattern: "${json.headerPattern}"`);
+        console.log(`🤖 Has Header: ${json.hasHeader}`);
+      } else {
+        console.log(`🤖 ❌ NO HEADER DETECTED`);
+        console.log(`🤖 Reason: hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
+        result.headerInfo = null;
+      }
+      
     } catch (e) {
+      console.log(`🤖 ⚠️ JSON parsing failed: ${e.message}`);
+      console.log('🤖 Attempting fallback parsing...');
+      
       // 如果不是纯JSON，尝试提取花括号内JSON
       const start = content.indexOf('{');
       const end = content.lastIndexOf('}');
       if (start >= 0 && end > start) {
-        const json = JSON.parse(content.slice(start, end + 1));
-        studyNumber = (json && json.studyNumber) ? String(json.studyNumber).trim() : null;
+        const extractedJson = content.slice(start, end + 1);
+        console.log(`🤖 Extracted JSON from response: ${extractedJson}`);
+        
+        try {
+          const json = JSON.parse(extractedJson);
+          
+          console.log('🤖 ===== FALLBACK JSON RESPONSE BREAKDOWN =====');
+          console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
+          console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
+          console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
+          console.log('🤖 ============================================');
+          
+          result.studyNumber = (json && json.studyNumber && json.studyNumber !== 'N/A') 
+            ? String(json.studyNumber).trim() : null;
+          console.log(`🤖 Extracted Study Number (fallback): "${result.studyNumber}"`);
+            
+          if (json && json.hasHeader && json.headerPattern) {
+            result.headerInfo = {
+              hasHeader: json.hasHeader,
+              headerPattern: json.headerPattern
+            };
+            console.log(`🤖 ✅ HEADER DETECTED (fallback)!`);
+            console.log(`🤖 Header Pattern (fallback): "${json.headerPattern}"`);
+            console.log(`🤖 Has Header (fallback): ${json.hasHeader}`);
+          } else {
+            console.log(`🤖 ❌ NO HEADER DETECTED (fallback)`);
+            console.log(`🤖 Reason (fallback): hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
+            result.headerInfo = null;
+          }
+        } catch (fallbackError) {
+          console.log(`🤖 ❌ Fallback JSON parsing also failed: ${fallbackError.message}`);
+          result.headerInfo = null;
+        }
+      } else {
+        console.log(`🤖 ❌ No valid JSON found in response`);
+        result.headerInfo = null;
       }
     }
 
     // 兜底：正则基于常见行
-    if (!studyNumber || studyNumber === 'N/A') {
+    if (!result.studyNumber) {
       const lines = head.split(/\n|\r/);
       const candidates = [];
       for (const line of lines) {
@@ -199,13 +280,26 @@ ${head}`;
           if (m && m[1]) candidates.push(m[1]);
         }
       }
-      if (candidates.length > 0) studyNumber = candidates[0];
+      if (candidates.length > 0) result.studyNumber = candidates[0];
     }
 
-    return studyNumber || null;
+    console.log('🤖 ===== FINAL AI EXTRACTION RESULT =====');
+    console.log(`🤖 Study Number: "${result.studyNumber || 'null'}"`);
+    if (result.headerInfo) {
+      console.log(`🤖 Header Detected: ✅ YES`);
+      console.log(`🤖 Header Pattern: "${result.headerInfo.headerPattern}"`);
+      console.log(`🤖 Has Header: ${result.headerInfo.hasHeader}`);
+    } else {
+      console.log(`🤖 Header Detected: ❌ NO`);
+    }
+    console.log('🤖 ===== AI HEADER DETECTION END =====');
+    return result;
   } catch (err) {
-    console.warn('提取Study Number失败:', err.message);
-    return null;
+    console.error('🤖 ❌ AI Study Number extraction FAILED:', err.message);
+    console.error('🤖 Error details:', err);
+    console.warn('🤖 Using regex fallback for Study Number extraction');
+    console.log('🤖 ===== AI HEADER DETECTION END (ERROR) =====');
+    return { studyNumber: null, headerInfo: null };
   }
 }
 

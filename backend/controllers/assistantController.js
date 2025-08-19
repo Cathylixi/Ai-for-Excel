@@ -52,18 +52,24 @@ async function lookupStudyTask(req, res) {
     const studyRegex = buildStudyNumberRegex(studyIdentifier);
     const doc = await Document.findOne({ 
       studyNumber: { $regex: studyRegex }
-    }).select('_id studyNumber projectDone');
+    }).select('_id studyNumber projectDone ProjectCostEstimateDetails.sdtmAnalysisStatus');
     if (!doc) {
       return res.json({ success: true, data: { foundStudy: false } });
     }
 
     const done = doc.projectDone || {};
     let isUnfinished = null;
+    let currentStatus = null;
+    
     if (task.key === 'costEstimate') {
       // 未完成：isCostEstimate 为 false 即未完成
       isUnfinished = done.hasOwnProperty('isCostEstimate') ? !Boolean(done.isCostEstimate) : null;
+      // 🔥 获取当前的 sdtmAnalysisStatus 以便前端精确路由
+      currentStatus = doc.ProjectCostEstimateDetails?.sdtmAnalysisStatus || null;
     } else if (task.key === 'sasAnalysis') {
       isUnfinished = done.hasOwnProperty('isSasAnalysis') ? !Boolean(done.isSasAnalysis) : null;
+      // 对于SAS分析，我们暂时不需要状态机，保持原有逻辑
+      currentStatus = null;
     }
 
     return res.json({
@@ -74,7 +80,8 @@ async function lookupStudyTask(req, res) {
         studyNumber: doc.studyNumber,
         taskKey: task.key,
         taskName: task.name,
-        isUnfinished
+        isUnfinished,
+        currentStatus // 🔥 新增：返回当前的精确状态
       }
     });
   } catch (err) {

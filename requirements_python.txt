@@ -1,0 +1,2 @@
+# Python dependencies for PDF processing
+pypdf==4.0.1

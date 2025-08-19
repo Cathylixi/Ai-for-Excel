@@ -1,0 +1,883 @@
+/*
+ * costestimate.css - Step 3-6 样式 (CostEstimate 模块)
+ * 职责：项目选择、分析进度、SDTM结果、完成确认页面样式
+ */
+
+/* ===== Step 3: Project Selection 样式 ===== */
+.costestimate-step3 {
+  height: calc(100vh - 100px); /* 减少减去的高度，让容器更高 */
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  box-sizing: border-box;
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+  overflow: hidden; /* 防止整个页面滚动 */
+  position: relative;
+}
+
+.costestimate-step3 h3 {
+  margin: 0 0 12px 0;
+  font-size: 24px;
+  font-weight: 600;
+  color: #2c3e50;
+  text-align: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  text-shadow: 0 2px 4px rgba(102, 126, 234, 0.1);
+  flex-shrink: 0;
+}
+
+.costestimate-step3 > p {
+  margin: 0 0 16px 0;
+  font-size: 16px;
+  color: #6c757d;
+  text-align: center;
+  font-weight: 400;
+  flex-shrink: 0;
+}
+
+/* 项目选项容器 - 固定高度，只有内容可滚动 */
+.project-options {
+  flex: 1;
+  min-height: 0; /* 重要：允许flexbox压缩 */
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 20px;
+  background: #ffffff;
+  border: 2px solid rgba(102, 126, 234, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 0; /* 确保没有额外的底部边距 */
+}
+
+/* 单个项目选项卡片 */
+.project-option {
+  background: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(102, 126, 234, 0.15);
+  border-radius: 10px;
+  padding: 16px 20px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  display: flex;
+  align-items: center;
+  min-height: 70px;
+}
+
+.project-option::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  transform: scaleX(0);
+  transition: transform 0.3s ease;
+  transform-origin: left;
+}
+
+.project-option:hover {
+  border-color: rgba(102, 126, 234, 0.3);
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.12);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+.project-option:hover::before {
+  transform: scaleX(1);
+}
+
+/* Checkbox 样式 */
+.ms-CheckBox-input {
+  width: 18px;
+  height: 18px;
+  margin: 0 16px 0 0;
+  accent-color: #667eea;
+  cursor: pointer;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.ms-CheckBox-label {
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 1.4;
+  color: #2c3e50;
+  font-weight: 500;
+  width: 100%;
+  min-height: 24px;
+}
+
+.ms-CheckBox-field {
+  display: none; /* 使用原生checkbox */
+}
+
+.ms-CheckBox-text {
+  flex: 1;
+  transition: color 0.3s ease;
+  margin: 0;
+  padding: 0;
+}
+
+/* 选中状态 */
+.project-option:has(input:checked) {
+  border-color: #667eea;
+  background: linear-gradient(135deg, rgba(102, 126, 234, 0.05) 0%, rgba(255, 255, 255, 0.9) 100%);
+}
+
+.project-option:has(input:checked) .ms-CheckBox-text {
+  color: #667eea;
+  font-weight: 600;
+}
+
+.project-option:has(input:checked)::before {
+  transform: scaleX(1);
+}
+
+/* 数量输入容器 */
+.count-input-container {
+  margin-top: 12px;
+  margin-left: 34px; /* 对齐checkbox右侧 */
+  padding: 12px 16px;
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(102, 126, 234, 0.1);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.count-label {
+  font-size: 14px;
+  color: #495057;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.count-input {
+  flex: 1;
+  max-width: 100px;
+  padding: 8px 12px;
+  border: 2px solid rgba(102, 126, 234, 0.2);
+  border-radius: 6px;
+  font-size: 14px;
+  text-align: center;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.count-input:focus {
+  outline: none;
+  border-color: #667eea;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+}
+
+.count-suffix {
+  font-size: 14px;
+  color: #6c757d;
+  font-weight: 500;
+}
+
+/* 自定义滚动条样式 */
+.project-options::-webkit-scrollbar {
+  width: 8px;
+}
+
+.project-options::-webkit-scrollbar-track {
+  background: rgba(102, 126, 234, 0.05);
+  border-radius: 4px;
+}
+
+.project-options::-webkit-scrollbar-thumb {
+  background: rgba(102, 126, 234, 0.3);
+  border-radius: 4px;
+}
+
+.project-options::-webkit-scrollbar-thumb:hover {
+  background: rgba(102, 126, 234, 0.5);
+}
+
+/* 响应式设计 */
+@media (max-width: 768px) {
+  #costestimate-step3-container {
+    height: calc(100vh - 90px); /* 平板上也增加容器高度 */
+  }
+  
+  .costestimate-step3 {
+    height: 100%;
+    padding: 16px;
+  }
+  
+  .costestimate-step3 h3 {
+    font-size: 20px;
+  }
+  
+  .project-options {
+    padding: 16px;
+  }
+  
+  .project-option {
+    padding: 14px 16px;
+    min-height: 60px;
+  }
+  
+  .ms-CheckBox-input {
+    width: 16px;
+    height: 16px;
+    margin-right: 12px;
+  }
+  
+  .count-input-container {
+    margin-left: 28px;
+    padding: 10px 12px;
+    gap: 8px;
+  }
+  
+  .count-input {
+    max-width: 80px;
+  }
+}
+
+@media (max-width: 480px) {
+  #costestimate-step3-container {
+    height: calc(100vh - 80px); /* 手机上也增加容器高度 */
+  }
+  
+  .costestimate-step3 {
+    height: 100%;
+    padding: 12px;
+  }
+  
+  .project-options {
+    padding: 12px;
+  }
+  
+  .project-option {
+    padding: 12px 14px;
+    min-height: 54px;
+  }
+  
+  .ms-CheckBox-label {
+    font-size: 14px;
+  }
+  
+  .ms-CheckBox-input {
+    width: 14px;
+    height: 14px;
+    margin-right: 10px;
+  }
+  
+  .count-input-container {
+    margin-left: 24px;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+  }
+  
+  .count-input {
+    max-width: none;
+    width: 100%;
+  }
+}
+
+/* ===== Step 4: Analysis Progress 样式 ===== */
+.costestimate-step4 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 40px;
+  text-align: center;
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.costestimate-step4 h3 {
+  margin-bottom: 16px;
+  color: #2c3e50;
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.costestimate-step4 p {
+  margin-bottom: 32px;
+  color: #6c757d;
+  font-size: 16px;
+  max-width: 500px;
+}
+
+/* ===== Step 5: SDTM Analysis Results 样式 ===== */
+/* 🔥 完整复制原始设计样式 */
+
+/* SDTM Analysis Results Section */
+.costestimate-step5,
+.sdtm-analysis-section {
+    width: 100%;
+    max-width: none;
+    margin: 15px auto;
+    padding: 20px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #f0f8ff;
+    box-sizing: border-box;
+}
+
+.costestimate-step5 h3,
+.sdtm-analysis-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    text-align: left;
+}
+
+.sdtm-summary {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid #d0e7ff;
+}
+
+.summary-stats {
+    display: flex;
+    gap: 20px;
+    margin-bottom: 15px;
+    flex-wrap: wrap;
+}
+
+.stat-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    min-width: 120px;
+}
+
+.stat-label {
+    font-size: 12px;
+    color: #666;
+    margin-bottom: 5px;
+}
+
+.stat-value {
+    font-size: 20px;
+    font-weight: 600;
+    color: #0078d7;
+}
+
+.domains-overview {
+    margin-bottom: 10px;
+}
+
+.domains-overview .stat-label {
+    font-size: 14px;
+    color: #333;
+    margin-bottom: 5px;
+    display: block;
+}
+
+.domains-list-overview {
+    margin-top: 5px;
+}
+
+.domain-list {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 15px;
+}
+
+.domain-label {
+    font-size: 14px;
+    color: #333;
+    font-weight: 500;
+    display: block;
+    margin-bottom: 8px;
+}
+
+.domain-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.domain-tag {
+    background-color: #0078d7;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.sdtm-status {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sdtm-status.success {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+    color: #155724;
+}
+
+.sdtm-status.error {
+    background-color: #f8d7da;
+    border-color: #f5c6cb;
+    color: #721c24;
+}
+
+/* Main mappings container - NEW LAYOUT */
+.sdtm-mappings-container {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #d0e7ff;
+    margin-bottom: 15px;
+}
+
+.mappings-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+.mappings-header h4 {
+    margin: 0;
+    color: #333;
+}
+
+.mappings-actions {
+    display: flex;
+    gap: 8px;
+}
+
+/* Left-Right Layout */
+.procedure-domain-layout {
+    display: flex;
+    gap: 20px;
+    min-height: 200px;
+}
+
+.procedures-column,
+.domains-column {
+    flex: 1;
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #e0e0e0;
+}
+
+.column-header {
+    margin: 0 0 15px 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    padding-bottom: 8px;
+    border-bottom: 2px solid #0078d7;
+}
+
+.procedures-list,
+.domains-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+/* Procedure items */
+.procedure-item {
+    background-color: white;
+    border-radius: 4px;
+    padding: 10px;
+    border: 1px solid #d0d7de;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.procedure-item:hover {
+    border-color: #0078d7;
+    box-shadow: 0 2px 4px rgba(0, 120, 215, 0.1);
+}
+
+.procedure-item.selected {
+    border-color: #0078d7;
+    background-color: #f0f8ff;
+}
+
+.procedure-text {
+    font-size: 13px;
+    color: #333;
+    font-weight: 500;
+}
+
+/* Domain items corresponding to selected procedure */
+.domain-item {
+    background-color: white;
+    border-radius: 4px;
+    padding: 10px;
+    border: 1px solid #d0d7de;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+}
+
+.domain-tag-editable {
+    background-color: #e6f3ff;
+    color: #0078d7;
+    padding: 4px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+    border: 1px solid #b3d9ff;
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.domain-tag-editable.editable {
+    padding-right: 20px;
+}
+
+.domain-tag-editable .remove-domain {
+    color: #d73a49;
+    cursor: pointer;
+    font-weight: bold;
+    font-size: 12px;
+    display: none;
+}
+
+.domain-tag-editable.editable .remove-domain {
+    display: inline;
+}
+
+.domain-input {
+    flex: 1;
+    border: 1px solid #d0d7de;
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 12px;
+    min-width: 100px;
+}
+
+.domain-input:focus {
+    border-color: #0078d7;
+    outline: none;
+    box-shadow: 0 0 0 1px #0078d7;
+}
+
+.add-domain-btn {
+    background-color: #e6f3ff;
+    color: #0078d7;
+    border: 1px dashed #0078d7;
+    border-radius: 12px;
+    padding: 4px 8px;
+    font-size: 11px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.add-domain-btn:hover {
+    background-color: #d0e7ff;
+}
+
+/* Edit mode actions */
+.edit-mode-actions {
+    margin-top: 15px;
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+}
+
+/* Confirmation status */
+.confirmation-status {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    border-radius: 6px;
+    padding: 12px;
+    margin-top: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #155724;
+}
+
+.confirmation-status .ms-Icon {
+    color: #28a745;
+}
+
+/* Flat mappings list (newer design) */
+.flat-mappings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.flat-mapping-item {
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    padding: 15px;
+    border-left: 4px solid #0078d7;
+}
+
+.flat-procedure-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
+.flat-domain-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+/* OLD MAPPINGS STYLES - Keep for backward compatibility */
+.sdtm-mappings {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #d0e7ff;
+}
+
+.sdtm-mappings h4 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.mappings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.mapping-item {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    background-color: #f8f9fa;
+    border-radius: 4px;
+    border-left: 3px solid #0078d7;
+}
+
+.procedure-name {
+    flex: 1;
+    font-weight: 500;
+    color: #333;
+    margin-right: 15px;
+}
+
+.domain-mappings {
+    display: flex;
+    gap: 4px;
+    flex-wrap: wrap;
+}
+
+.domain-mappings .domain-tag {
+    background-color: #28a745;
+    font-size: 11px;
+}
+
+.sdtm-actions {
+    text-align: center;
+    margin-top: 15px;
+}
+
+/* 响应式设计 - SDTM分析部分 */
+@media (max-width: 600px) {
+    .costestimate-step5,
+    .sdtm-analysis-section {
+        margin: 10px auto;
+        padding: 15px;
+    }
+
+    .summary-stats {
+        flex-direction: column;
+        gap: 10px;
+    }
+
+    .stat-item {
+        min-width: auto;
+        width: 100%;
+    }
+
+    .procedure-domain-layout {
+        flex-direction: column;
+        gap: 15px;
+    }
+
+    .flat-mappings-list {
+        gap: 12px;
+    }
+
+    .flat-mapping-item {
+        padding: 12px;
+    }
+}
+
+/* ===== Step 6: Completion 样式 ===== */
+.costestimate-step6 {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 40px;
+  text-align: center;
+  background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+}
+
+.completion-confirmation-section {
+  max-width: 600px;
+  padding: 40px;
+  background: #ffffff;
+  border-radius: 16px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+}
+
+.completion-icon {
+  margin-bottom: 24px;
+}
+
+.completion-title {
+  margin: 0 0 24px 0;
+  font-size: 28px;
+  font-weight: 600;
+  color: #2c3e50;
+}
+
+.completion-message {
+  margin-bottom: 32px;
+}
+
+.completion-message p {
+  margin: 8px 0;
+  font-size: 16px;
+  color: #6c757d;
+  line-height: 1.6;
+}
+
+.completion-summary {
+  text-align: left;
+  background: rgba(102, 126, 234, 0.05);
+  padding: 20px;
+  border-radius: 8px;
+  border-left: 4px solid #667eea;
+}
+
+.completion-summary h4 {
+  margin: 0 0 16px 0;
+  color: #2c3e50;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.completion-summary ul {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.completion-summary li {
+  margin: 8px 0;
+  color: #495057;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* 可编辑域标签样式 */
+.editable-domain-tag {
+  background-color: #e6f3ff !important;
+  color: #0078d7 !important;
+  padding: 4px 8px !important;
+  border-radius: 12px !important;
+  font-size: 11px !important;
+  font-weight: 500 !important;
+  border: 1px solid #b3d9ff !important;
+  position: relative !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  cursor: text !important;
+  min-width: 30px !important;
+  margin: 1px !important;
+  transition: all 0.2s ease !important;
+}
+
+.editable-domain-tag:hover {
+  background-color: #d0e7ff !important;
+  border-color: #0078d7 !important;
+}
+
+.editable-domain-tag.editing {
+  background-color: white !important;
+  border-color: #0078d7 !important;
+  box-shadow: 0 0 0 2px rgba(0, 120, 215, 0.3) !important;
+  outline: none !important;
+}
+
+.editable-domain-tag[contenteditable="true"]:focus {
+  background-color: white !important;
+  border-color: #0078d7 !important;
+  box-shadow: 0 0 0 2px rgba(0, 120, 215, 0.3) !important;
+  outline: none !important;
+}
+
+/* 删除按钮 */
+.remove-domain-btn {
+  color: #d73a49 !important;
+  cursor: pointer !important;
+  font-weight: bold !important;
+  font-size: 12px !important;
+  margin-left: 4px !important;
+  opacity: 0 !important;
+  transition: opacity 0.2s ease !important;
+}
+
+.editable-domain-tag:hover .remove-domain-btn {
+  opacity: 1 !important;
+}
+
+.remove-domain-btn:hover {
+  color: #cb2431 !important;
+  background-color: rgba(211, 58, 73, 0.1) !important;
+  border-radius: 50% !important;
+  width: 16px !important;
+  height: 16px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin-left: 2px !important;
+}
+
+
+
+
+
+
+
+
+
+
