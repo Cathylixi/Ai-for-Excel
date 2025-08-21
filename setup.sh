@@ -43,6 +43,20 @@ npm install
 # Go back to root directory
 cd ..
 
+# Install Python dependencies for PDF processing
+echo ""
+echo "🐍 Installing Python dependencies for PDF processing..."
+if command -v python3 &> /dev/null; then
+    python3 -m pip install -r requirements_python.txt
+    echo "✅ Python dependencies installed successfully"
+elif command -v python &> /dev/null; then
+    python -m pip install -r requirements_python.txt
+    echo "✅ Python dependencies installed successfully"
+else
+    echo "⚠️  Python not found. Please install Python 3.8+ and run:"
+    echo "   pip install -r requirements_python.txt"
+fi
+
 # Check if .env file exists in backend
 if [ ! -f "backend/.env" ]; then
     echo ""
@@ -88,9 +102,10 @@ echo "🎉 Setup completed successfully!"
 echo ""
 echo "📋 Next Steps:"
 echo "1. Edit backend/.env with your MongoDB URI and OpenAI API key"
-echo "2. Start the backend server: cd backend && npm start"
-echo "3. Start the frontend server: cd frontend && npm run dev-server"
-echo "4. Open Excel and load the add-in using the manifest.xml file"
+echo "2. Ensure Python dependencies are installed: pip install -r requirements_python.txt"
+echo "3. Start the backend server: cd backend && npm start"
+echo "4. Start the frontend server: cd frontend && npm run dev-server"
+echo "5. Open Excel and load the add-in using the manifest.xml file"
 echo ""
 echo "📚 For detailed instructions, see requirements.txt"
 echo "🐛 For troubleshooting, check the troubleshooting section in requirements.txt" 

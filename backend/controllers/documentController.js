@@ -1,9 +1,12 @@
+// Legacy Document model kept for backward compatibility (not used after migration)
 const Document = require('../models/documentModel');
+const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
-const { processPdfWithPypdf, formatResultForDatabase } = require('../services/pypdfService');
+const { processPdfWithPypdf, formatResultForDatabase, pypdfService } = require('../services/pypdfService');
+const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
 
 
-// 上传文档处理函数
+// 上传文档处理函数（Study-level with file slots）
 async function uploadDocument(req, res) {
   try {
     console.log('📥 上传请求详情:', {
@@ -20,7 +23,7 @@ async function uploadDocument(req, res) {
       });
     }
 
-    const { documentType } = req.body; // 前端会传 'ClinicalProtocol'
+    const { documentType, studyNumber: explicitStudyNumber, fileType } = req.body; // fileType: protocol|crf|sap
     
     console.log('收到Clinical Protocol文件:', req.file.originalname, '类型:', req.file.mimetype);
 
@@ -65,37 +68,66 @@ async function uploadDocument(req, res) {
       // parseResult 保持默认值（空内容）
     }
 
-    // 创建文档记录 - 包含结构化数据
-    const document = new Document({
-      originalName: req.file.originalname,
-      fileSize: req.file.size,
-      protocolType: 'ClinicalProtocol',
-      uploadExtraction: {
-        extractedText: parseResult.extractedText,
-        sectionedText: parseResult.sectionedText,
-        tables: parseResult.tables,
-        assessmentSchedule: parseResult.assessmentSchedule,
-        // Note: internalLinks removed in simplified PDF version
-      },
-      studyNumber: parseResult.studyNumber || null,
-      parseInfo: parseResult.parseInfo,
-      specificMetadata: {}, // Simplified: no metadata extraction for now
-      ProjectCostEstimateDetails: {
-        sdtmAnalysis: parseResult.sdtmAnalysis || undefined,
-        // 其他字段使用schema默认
-      }
-    });
+    // === Study upsert and file slot update ===
+    const derivedStudyNumber = explicitStudyNumber || parseResult.studyNumber || null;
+    const slotKey = (fileType || 'protocol').toLowerCase(); // default to protocol
 
-    const savedDocument = await document.save();
+    if (!derivedStudyNumber) {
+      console.warn('⚠️ 未识别到studyNumber，仍将创建Study占位记录');
+    }
 
-    console.log('✅ Clinical Protocol document saved successfully, ID:', savedDocument._id);
+    // Find or create study by studyNumber
+    let study = await Study.findOne({ studyNumber: derivedStudyNumber });
+    if (!study) {
+      study = new Study({ studyNumber: derivedStudyNumber });
+    }
+
+    // Ensure files structure exists
+    study.files = study.files || {};
+    study.files[slotKey] = study.files[slotKey] || {};
+
+    // Fill file slot
+    study.files[slotKey].uploaded = true;
+    study.files[slotKey].originalName = req.file.originalname;
+    study.files[slotKey].fileSize = req.file.size;
+    study.files[slotKey].mimeType = req.file.mimetype;
+    study.files[slotKey].uploadedAt = new Date();
+    study.files[slotKey].uploadExtraction = {
+      extractedText: parseResult.extractedText,
+      sectionedText: parseResult.sectionedText,
+      tables: parseResult.tables,
+      assessmentSchedule: parseResult.assessmentSchedule
+    };
+
+    // Write partial sdtm procedures (PDF path) into CostEstimateDetails at study level
+    if (parseResult?.sdtmAnalysis?.procedures?.length > 0) {
+      study.CostEstimateDetails = study.CostEstimateDetails || {};
+      const existing = study.CostEstimateDetails.sdtmAnalysis || {};
+      study.CostEstimateDetails.sdtmAnalysis = {
+        ...existing,
+        success: Boolean(parseResult.sdtmAnalysis.success),
+        procedures: parseResult.sdtmAnalysis.procedures,
+        summary: parseResult.sdtmAnalysis.summary || {
+          total_procedures: parseResult.sdtmAnalysis.procedures?.length || 0,
+          total_sdtm_domains: 0,
+          unique_domains: [],
+          highComplexitySdtm: { count: 0, domains: [] },
+          mediumComplexitySdtm: { count: 0, domains: [] }
+        }
+      };
+    }
+
+    // Save study
+    const savedStudy = await study.save();
+
+    console.log('✅ Study saved successfully, ID:', savedStudy._id);
     console.log(`📊 Saved data structure:`, {
       sections: parseResult.parseInfo.sectionsCount,
       tables: parseResult.parseInfo.tablesCount,
       hasStructuredContent: parseResult.parseInfo.hasStructuredContent,
       hasAssessmentSchedule: parseResult.parseInfo.hasAssessmentSchedule,
       method: parseResult.parseInfo.parseMethod,
-      studyNumber: parseResult.studyNumber || 'Not found'
+      studyNumber: savedStudy.studyNumber || 'Not found'
     });
     
     // 🔥 成本估算快照（SDTM部分）
@@ -141,12 +173,12 @@ async function uploadDocument(req, res) {
         const subtotal = Object.values(estimatedCosts).reduce((acc, v) => acc + Number(v || 0), 0);
 
         // 组装目标结构（嵌套路径）
-        savedDocument.ProjectCostEstimateDetails = savedDocument.ProjectCostEstimateDetails || {};
-        const nestedCost = savedDocument.ProjectCostEstimateDetails.costEstimate || {};
+        savedStudy.CostEstimateDetails = savedStudy.CostEstimateDetails || {};
+        const nestedCost = savedStudy.CostEstimateDetails.sdtmTableInput || {};
         nestedCost['SDTM Datasets Production and Validation'] = { units, estimatedCosts, subtotal };
         nestedCost.createdAt = new Date();
-        savedDocument.ProjectCostEstimateDetails.costEstimate = nestedCost;
-        await savedDocument.save();
+        savedStudy.CostEstimateDetails.sdtmTableInput = nestedCost;
+        await savedStudy.save();
         console.log('💾 已保存SDTM成本估算快照');
       }
     } catch (costErr) {
@@ -157,13 +189,13 @@ async function uploadDocument(req, res) {
 
     res.json({
       success: true,
-      message: 'Clinical Protocol 上传成功',
-      uploadId: savedDocument._id,
+      message: 'Study file uploaded successfully',
+      uploadId: savedStudy._id,
       fileName: req.file.originalname,
       fileSize: req.file.size,
       extractedLength: parseResult.extractedText.length,
-      protocolType: 'ClinicalProtocol',
-      studyNumber: savedDocument.studyNumber || null,
+      protocolType: 'ClinicalProtocol', // kept for compatibility
+      studyNumber: savedStudy.studyNumber || null,
       structuredData: {
         sectionsCount: parseResult.parseInfo.sectionsCount,
         tablesCount: parseResult.parseInfo.tablesCount,
@@ -179,7 +211,7 @@ async function uploadDocument(req, res) {
       },
       // 为前端兼容：直接返回AI分析结果
       sdtmAnalysis: parseResult.sdtmAnalysis,
-      costEstimate: (savedDocument.ProjectCostEstimateDetails && savedDocument.ProjectCostEstimateDetails.costEstimate) || {}
+      costEstimate: (savedStudy.CostEstimateDetails && savedStudy.CostEstimateDetails.sdtmTableInput) || {}
     });
 
   } catch (error) {
@@ -193,36 +225,37 @@ async function uploadDocument(req, res) {
   }
 }
 
-// 获取文档列表
+// 获取Study列表（兼容旧名）
 async function getDocuments(req, res) {
   try {
-    const documents = await Document.find({ protocolType: 'ClinicalProtocol' })
-      .select('originalName fileSize uploadedAt protocolType specificMetadata parseInfo uploadExtraction extractedText sectionedText tables assessmentSchedule')
-      .sort({ uploadedAt: -1 });
+    const studies = await Study.find({}).select('studyNumber files createdAt updatedAt projectDone CostEstimateDetails.sdtmAnalysisStatus').sort({ updatedAt: -1 }).lean();
 
-    // 为每个文档添加结构化数据的摘要信息
-    const documentsWithSummary = documents.map(doc => ({
-      _id: doc._id,
-      originalName: doc.originalName,
-      fileSize: doc.fileSize,
-      uploadedAt: doc.uploadedAt,
-      protocolType: doc.protocolType,
-      specificMetadata: doc.specificMetadata,
-      structuredInfo: {
-        hasStructuredContent: doc.parseInfo?.hasStructuredContent || false,
-        sectionsCount: doc.parseInfo?.sectionsCount || 0,
-        tablesCount: doc.parseInfo?.tablesCount || 0,
-        parseMethod: doc.parseInfo?.parseMethod || 'unknown',
-        sectionTitles: (doc.uploadExtraction?.sectionedText || doc.sectionedText || []).map(section => section.title) || [],
-        hasExtractedText: !!(doc.uploadExtraction?.extractedText || doc.extractedText),
-        hasAssessmentSchedule: doc.parseInfo?.hasAssessmentSchedule || false,
-        assessmentSchedule: (doc.uploadExtraction?.assessmentSchedule || doc.assessmentSchedule) ? {
-          tableIndex: (doc.uploadExtraction?.assessmentSchedule || doc.assessmentSchedule).tableIndex,
-          confidence: (doc.uploadExtraction?.assessmentSchedule || doc.assessmentSchedule).confidence,
-          identifiedBy: (doc.uploadExtraction?.assessmentSchedule || doc.assessmentSchedule).identifiedBy
-        } : null
-      }
-    }));
+    const documentsWithSummary = studies.map(s => {
+      const proto = s.files?.protocol || {};
+      const ex = proto.uploadExtraction || {};
+      const sections = Array.isArray(ex.sectionedText) ? ex.sectionedText.length : 0;
+      const tables = Array.isArray(ex.tables) ? ex.tables.length : 0;
+      return {
+        _id: s._id,
+        studyNumber: s.studyNumber,
+        uploadedAt: proto.uploadedAt || s.createdAt,
+        protocolUploaded: Boolean(proto.uploaded),
+        structuredInfo: {
+          hasStructuredContent: sections > 0 || tables > 0,
+          sectionsCount: sections,
+          tablesCount: tables,
+          parseMethod: 'study-level',
+          sectionTitles: (ex.sectionedText || []).map(sec => sec.title) || [],
+          hasExtractedText: !!ex.extractedText,
+          hasAssessmentSchedule: Boolean(ex.assessmentSchedule),
+          assessmentSchedule: ex.assessmentSchedule ? {
+            tableIndex: ex.assessmentSchedule.tableIndex,
+            confidence: ex.assessmentSchedule.confidence,
+            identifiedBy: ex.assessmentSchedule.identifiedBy
+          } : null
+        }
+      };
+    });
 
     res.json({
       success: true,
@@ -243,9 +276,9 @@ async function getDocuments(req, res) {
 // 🔥 新增：列出未完成的成本估算（projectDone.isCostEstimate=false）
 async function listIncompleteEstimates(req, res) {
   try {
-    const docs = await Document.find({ 'projectDone.isCostEstimate': false })
-      .select('_id originalName studyNumber uploadedAt')
-      .sort({ uploadedAt: -1 })
+    const docs = await Study.find({ 'projectDone.isCostEstimate': false })
+      .select('_id studyNumber files createdAt updatedAt')
+      .sort({ updatedAt: -1 })
       .lean();
     res.json({ success: true, data: docs });
   } catch (error) {
@@ -254,64 +287,48 @@ async function listIncompleteEstimates(req, res) {
   }
 }
 
-// 获取文档详细内容
+// 获取Study详细内容（兼容旧路径）
 async function getDocumentContent(req, res) {
   try {
     const { id } = req.params;
-    
-    const document = await Document.findById(id)
-      .select('originalName fileSize uploadedAt protocolType uploadExtraction extractedText sectionedText tables assessmentSchedule parseInfo ProjectCostEstimateDetails studyNumber');
-    
-    if (!document) {
+    const study = await Study.findById(id).lean();
+    if (!study) {
       return res.status(404).json({
         success: false,
-        message: '文档不存在'
+        message: 'Study 不存在'
       });
     }
 
-    const pced = document.ProjectCostEstimateDetails || {};
+    const proto = study.files?.protocol || {};
+    const ex = proto.uploadExtraction || {};
+    const pced = study.CostEstimateDetails || {};
 
     res.json({
       success: true,
-      message: '获取文档内容成功',
+      message: '获取Study内容成功',
       document: {
-        _id: document._id,
-        originalName: document.originalName,
-        fileSize: document.fileSize,
-        uploadedAt: document.uploadedAt,
-        protocolType: document.protocolType,
-        parseInfo: document.parseInfo,
-        studyNumber: document.studyNumber || null,
-        // 🔥 完整的 ProjectCostEstimateDetails 结构
-        ProjectCostEstimateDetails: {
-          // 项目选择数据
+        _id: study._id,
+        studyNumber: study.studyNumber || null,
+        uploadedAt: proto.uploadedAt || study.createdAt,
+        // 🔥 完整的 CostEstimateDetails 结构
+        CostEstimateDetails: {
+          // 保证顺序：projectSelection → sdtmAnalysis → userConfirmedSdtm → sdtmAnalysisStatus → sdtmTableInput
           projectSelection: pced.projectSelection || { success: false, selectedProjects: [], selectionDetails: {} },
-          projectSelectionDetails: pced.projectSelectionDetails || {}, // 向后兼容
-          
-          // SDTM分析状态 (关键字段)
-          sdtmAnalysisStatus: pced.sdtmAnalysisStatus || null,
-          
-          // SDTM分析数据
           sdtmAnalysis: pced.sdtmAnalysis || null,
           userConfirmedSdtm: pced.userConfirmedSdtm || null,
-          
-          // 成本估算数据
-          costEstimate: pced.costEstimate || {}
+          sdtmAnalysisStatus: pced.sdtmAnalysisStatus || null,
+          sdtmTableInput: pced.sdtmTableInput || {}
         },
         
         // 🔥 保持向后兼容的sdtmData结构
-        sdtmData: {
-          original: pced.sdtmAnalysis || null,
-          confirmed: pced.userConfirmedSdtm || null,
-          status: pced.sdtmAnalysisStatus || 'pending_confirmation'
-        },
+        sdtmData: { original: pced.sdtmAnalysis || null, confirmed: pced.userConfirmedSdtm || null, status: pced.sdtmAnalysisStatus || 'pending_confirmation' },
         
         // 文档内容
         content: {
-          extractedText: document.uploadExtraction?.extractedText || document.extractedText || null,
-          sections: document.uploadExtraction?.sectionedText || document.sectionedText || [],
-          tables: document.uploadExtraction?.tables || document.tables || [],
-          assessmentSchedule: document.uploadExtraction?.assessmentSchedule || document.assessmentSchedule || null
+          extractedText: ex.extractedText || null,
+          sections: ex.sectionedText || [],
+          tables: ex.tables || [],
+          assessmentSchedule: ex.assessmentSchedule || null
           // Note: internalLinks removed in simplified PDF version
         }
       }
@@ -335,29 +352,53 @@ async function confirmSDTMAnalysis(req, res) {
     const { id } = req.params;
     const { procedures, mappings, summary } = req.body;
 
-    console.log(`确认文档 ${id} 的SDTM分析结果`);
+    console.log(`确认Study ${id} 的SDTM分析结果`);
 
-    const document = await Document.findById(id);
-    if (!document) {
+    const study = await Study.findById(id);
+    if (!study) {
       return res.status(404).json({
         success: false,
-        message: '文档不存在'
+        message: 'Study不存在'
       });
     }
 
-    document.ProjectCostEstimateDetails = document.ProjectCostEstimateDetails || {};
+    study.CostEstimateDetails = study.CostEstimateDetails || {};
+
+    // 转换mappings为简化的字符串格式（与sdtmAnalysis保持一致）
+    const simplifiedMappings = new Map();
+    if (mappings && typeof mappings === 'object') {
+      if (mappings instanceof Map) {
+        // 如果已经是Map格式，直接处理
+        for (const [procedure, domains] of mappings) {
+          if (Array.isArray(domains)) {
+            simplifiedMappings.set(procedure, domains.join(', '));
+          } else {
+            simplifiedMappings.set(procedure, String(domains));
+          }
+        }
+      } else {
+        // 如果是普通对象，转换为Map
+        Object.entries(mappings).forEach(([procedure, domains]) => {
+          if (Array.isArray(domains)) {
+            simplifiedMappings.set(procedure, domains.join(', '));
+          } else {
+            simplifiedMappings.set(procedure, String(domains));
+          }
+        });
+      }
+    }
 
     // 更新用户确认的SDTM数据（嵌套路径）
-    document.ProjectCostEstimateDetails.userConfirmedSdtm = {
+    study.CostEstimateDetails.userConfirmedSdtm = {
       success: true, // 🔥 新增：设置用户确认成功标志
       procedures,
-      mappings,
+      mappings: simplifiedMappings,
       summary,
       confirmedAt: new Date()
     };
     
     // 🔥 设置状态为第3步完成：用户确认完成
-    document.ProjectCostEstimateDetails.sdtmAnalysisStatus = 'user_confirmed_sdtm_done';
+    study.CostEstimateDetails.sdtmAnalysisStatus = 'user_confirmed_sdtm_done';
 
     // 同步生成并保存成本估算快照（基于确认后的summary）
     try {
@@ -411,16 +452,16 @@ async function confirmSDTMAnalysis(req, res) {
         xptConversion: allDomains.join('/')
       };
 
-      const pced = document.ProjectCostEstimateDetails;
-      const costEstimate = pced.costEstimate || {};
+      const pced = study.CostEstimateDetails;
+      const costEstimate = pced.sdtmTableInput || {};
       costEstimate['SDTM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
       costEstimate.createdAt = new Date();
-      pced.costEstimate = costEstimate;
+      pced.sdtmTableInput = costEstimate;
     } catch (calcErr) {
       console.warn('⚠️ 确认后生成成本估算失败:', calcErr.message);
     }
 
-    await document.save();
+    await study.save();
 
     console.log('SDTM分析结果已确认并保存');
 
@@ -429,9 +470,9 @@ async function confirmSDTMAnalysis(req, res) {
       message: 'SDTM分析结果已确认并保存',
       data: {
         documentId: id,
-        confirmedAt: document.ProjectCostEstimateDetails.userConfirmedSdtm.confirmedAt,
-        status: document.ProjectCostEstimateDetails.sdtmAnalysisStatus,
-        costEstimate: document.ProjectCostEstimateDetails.costEstimate || {}
+        confirmedAt: study.CostEstimateDetails.userConfirmedSdtm.confirmedAt,
+        status: study.CostEstimateDetails.sdtmAnalysisStatus,
+        costEstimate: study.CostEstimateDetails.sdtmTableInput || {}
       }
     });
 
@@ -451,17 +492,17 @@ async function updateProjectSelection(req, res) {
     const { id } = req.params;
     const { projectSelectionDetails } = req.body;
 
-    console.log(`更新文档 ${id} 的项目选择详情`);
+    console.log(`更新Study ${id} 的项目选择详情`);
 
-    const document = await Document.findById(id);
-    if (!document) {
+    const study = await Study.findById(id);
+    if (!study) {
       return res.status(404).json({
         success: false,
-        message: '文档不存在'
+        message: 'Study不存在'
       });
     }
 
-    document.ProjectCostEstimateDetails = document.ProjectCostEstimateDetails || {};
+    study.CostEstimateDetails = study.CostEstimateDetails || {};
 
     // 🔥 更新项目选择数据到新的 projectSelection 字段
     const selectedProjects = Object.keys(projectSelectionDetails).filter(
@@ -474,7 +515,7 @@ async function updateProjectSelection(req, res) {
     
 
     
-    document.ProjectCostEstimateDetails.projectSelection = {
+    study.CostEstimateDetails.projectSelection = {
       success: selectedProjects.length > 0, // 判断用户是否完成了项目选择
       selectedProjects: selectedProjects,
       selectionDetails: {
@@ -485,9 +526,9 @@ async function updateProjectSelection(req, res) {
     };
     
     // 🔥 设置状态为第1步完成：项目选择完成
-    document.ProjectCostEstimateDetails.sdtmAnalysisStatus = 'project_selection_done';
+    study.CostEstimateDetails.sdtmAnalysisStatus = 'project_selection_done';
 
-    await document.save();
+    await study.save();
 
     console.log('项目选择详情已更新并保存');
 
@@ -496,8 +537,8 @@ async function updateProjectSelection(req, res) {
       message: '项目选择详情已保存',
       data: {
         documentId: id,
-        projectSelection: document.ProjectCostEstimateDetails.projectSelection, // 🔥 新字段
-        projectSelectionDetails: document.ProjectCostEstimateDetails.projectSelectionDetails // 向后兼容
+        projectSelection: study.CostEstimateDetails.projectSelection, // 🔥 新字段
+        projectSelectionDetails: study.CostEstimateDetails.projectSelection?.selectionDetails // 向后兼容
       }
     });
 
@@ -515,13 +556,13 @@ async function updateProjectSelection(req, res) {
 async function markCostEstimateDone(req, res) {
   try {
     const { id } = req.params;
-    const document = await Document.findById(id);
-    if (!document) {
+    const study = await Study.findById(id);
+    if (!study) {
       return res.status(404).json({ success: false, message: '文档不存在' });
     }
-    document.projectDone = document.projectDone || {};
-    document.projectDone.isCostEstimate = true;
-    await document.save();
+    study.projectDone = study.projectDone || {};
+    study.projectDone.isCostEstimate = true;
+    await study.save();
     res.json({ success: true, message: '已标记为成本估算完成', data: { documentId: id, isCostEstimate: true } });
   } catch (error) {
     console.error('标记成本估算完成失败:', error);
@@ -533,25 +574,74 @@ async function markCostEstimateDone(req, res) {
 async function analyzeDocumentForSdtm(req, res) {
   try {
     const { id } = req.params;
-    const document = await Document.findById(id).select('uploadExtraction assessmentSchedule ProjectCostEstimateDetails');
-    if (!document) {
-      return res.status(404).json({ success: false, message: '文档不存在' });
+    const study = await Study.findById(id).lean(false);
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study 不存在' });
     }
-    const assess = document.uploadExtraction?.assessmentSchedule || document.assessmentSchedule;
-    if (!assess || !assess.htmlContent) {
-      return res.status(400).json({ success: false, message: '未找到评估时间表，无法进行SDTM分析' });
+    const assess = study.files?.protocol?.uploadExtraction?.assessmentSchedule || null;
+
+    console.log('🎯 Start unified SDTM analysis for both Word and PDF...');
+    
+    // Step 1: Intelligently prepare procedures array
+    let procedures = [];
+    
+    // Check if this is a PDF document with pre-extracted procedures
+    if (study.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
+      console.log('📄 PDF path: Using pre-extracted procedures from database...');
+      procedures = study.CostEstimateDetails.sdtmAnalysis.procedures;
+      console.log(`✅ Found ${procedures.length} pre-extracted procedures for PDF`);
+    }
+    // Otherwise, use Word HTML extraction flow
+    else if (assess && assess.htmlContent) {
+      console.log('📝 Word path: Extracting procedures from HTML Assessment Schedule...');
+      const { extractProceduresFromSchedule } = require('../services/sdtmAnalysisService');
+      procedures = extractProceduresFromSchedule(assess);
+      console.log(`✅ Extracted ${procedures.length} procedures from Word HTML`);
+    }
+    else {
+      return res.status(400).json({ 
+        success: false, 
+        message: '未找到有效的procedures来源（PDF预提取或Word HTML表格）' 
+      });
     }
 
-    const { performSDTMAnalysis } = require('../services/sdtmAnalysisService');
+    // Validate procedures
+    if (!procedures || procedures.length === 0) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '未能获取到有效的procedures进行分析' 
+      });
+    }
 
-    console.log('🎯 开始完整的SDTM分析流程...');
-    const sdtmAnalysis = await performSDTMAnalysis(assess);
+    // Step 2: Call unified AI analysis service (same for both Word and PDF)
+    console.log(`🤖 Calling unified AI analysis with ${procedures.length} procedures...`);
+    const mappingResult = await analyzeSDTMMapping(procedures);
 
-    // 保存结果
-    document.ProjectCostEstimateDetails = document.ProjectCostEstimateDetails || {};
-    document.ProjectCostEstimateDetails.sdtmAnalysis = sdtmAnalysis;
+    // Step 3: Merge results appropriately based on document type
+    let sdtmAnalysis;
+    if (document.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
+      // PDF path: Keep existing procedures, only add mappings & summary
+      console.log('📄 PDF: Preserving existing procedures, adding AI mappings & summary');
+      sdtmAnalysis = {
+        ...document.CostEstimateDetails.sdtmAnalysis, // Preserve existing procedures
+        ...mappingResult, // Add new mappings and summary
+        analyzedAt: new Date()
+      };
+    } else {
+      // Word path: Include procedures from extraction
+      console.log('📝 Word: Adding extracted procedures along with AI mappings & summary');
+      sdtmAnalysis = {
+        ...mappingResult,
+        procedures: procedures, // Word needs procedures from extraction
+        analyzedAt: new Date()
+      };
+    }
 
-    // 基于初步分析生成成本估算快照（可被后续确认覆盖）
+    // Save complete analysis results
+    study.CostEstimateDetails = study.CostEstimateDetails || {};
+    study.CostEstimateDetails.sdtmAnalysis = sdtmAnalysis;
+
+    // Generate cost estimation snapshot based on analysis results
     try {
       const sdtmSummary = sdtmAnalysis?.summary || {};
       const highCount = Number(sdtmSummary?.highComplexitySdtm?.count || 0);
@@ -564,7 +654,7 @@ async function analyzeDocumentForSdtm(req, res) {
       Object.keys(units).forEach(k => { const u = Number(units[k] || 0); const cpu = rates.costPerHour * Number(hoursPerUnit[k] || 0); estimatedCosts[k] = Number((u * cpu).toFixed(2)); });
       const subtotal = Object.values(estimatedCosts).reduce((acc, v) => acc + Number(v || 0), 0);
       
-      // 🔥 生成Notes信息（具体域列表）
+      // Generate domain notes
       const highDomains = sdtmSummary?.highComplexitySdtm?.domains || [];
       const mediumDomains = sdtmSummary?.mediumComplexitySdtm?.domains || [];
       const allDomains = sdtmSummary?.unique_domains || [];
@@ -575,18 +665,19 @@ async function analyzeDocumentForSdtm(req, res) {
         xptConversion: allDomains.join('/')
       };
       
-      const pced = document.ProjectCostEstimateDetails;
-      pced.costEstimate = pced.costEstimate || {};
-      pced.costEstimate['SDTM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
-      pced.costEstimate.createdAt = new Date();
-    } catch (e) { console.warn('生成初步成本估算失败:', e.message); }
+      const pced = study.CostEstimateDetails;
+      pced.sdtmTableInput = pced.sdtmTableInput || {};
+      pced.sdtmTableInput['SDTM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
+      pced.sdtmTableInput.createdAt = new Date();
+    } catch (e) { console.warn('Cost estimation generation failed:', e.message); }
 
-    // 🔥 设置状态为第2步完成：AI SDTM分析完成
-    document.ProjectCostEstimateDetails.sdtmAnalysisStatus = 'sdtm_ai_analysis_done';
+    // Set analysis status to completed
+    study.CostEstimateDetails.sdtmAnalysisStatus = 'sdtm_ai_analysis_done';
 
-    await document.save();
+    await study.save();
 
-    console.log('✅ SDTM分析完成，状态已更新为 sdtm_ai_analysis_done');
+    console.log('✅ Unified SDTM analysis completed for both Word and PDF');
+    console.log(`📊 Analysis results: ${sdtmAnalysis.procedures?.length || 0} procedures, ${sdtmAnalysis.mappings?.size || 0} mappings`);
     res.json({ success: true, message: 'SDTM分析完成', data: { sdtmAnalysis } });
   } catch (error) {
     console.error('延迟执行SDTM分析失败:', error);
@@ -607,30 +698,24 @@ async function updateUnits(req, res) {
       });
     }
 
-    const document = await Document.findById(id);
-    if (!document) {
+    const study = await Study.findById(id);
+    if (!study) {
       return res.status(404).json({
         success: false,
-        message: 'Document not found'
+        message: 'Study not found'
       });
     }
 
     // 更新Unit数据到数据库
-    if (!document.ProjectCostEstimateDetails) {
-      document.ProjectCostEstimateDetails = {};
-    }
-    if (!document.ProjectCostEstimateDetails.costEstimate) {
-      document.ProjectCostEstimateDetails.costEstimate = {};
-    }
-    if (!document.ProjectCostEstimateDetails.costEstimate.units) {
-      document.ProjectCostEstimateDetails.costEstimate.units = {};
-    }
+    if (!study.CostEstimateDetails) study.CostEstimateDetails = {};
+    if (!study.CostEstimateDetails.sdtmTableInput) study.CostEstimateDetails.sdtmTableInput = {};
+    if (!study.CostEstimateDetails.sdtmTableInput.units) study.CostEstimateDetails.sdtmTableInput.units = {};
 
     // 合并新的Unit数据（可更新）
-    Object.assign(document.ProjectCostEstimateDetails.costEstimate.units, units);
+    Object.assign(study.CostEstimateDetails.sdtmTableInput.units, units);
 
     // 🔥 同步更新 SDTM Datasets Production and Validation 部分
-    const sdtmSection = document.ProjectCostEstimateDetails.costEstimate['SDTM Datasets Production and Validation'];
+    const sdtmSection = study.CostEstimateDetails.sdtmTableInput['SDTM Datasets Production and Validation'];
     if (sdtmSection && sdtmSection.units) {
       // 更新SDTM section中的units
       Object.assign(sdtmSection.units, units);
@@ -666,15 +751,15 @@ async function updateUnits(req, res) {
     }
 
     // 保存到数据库
-    await document.save();
+    await study.save();
 
-    console.log(`✅ 已更新文档 ${id} 的Units:`, units);
+    console.log(`✅ 已更新Study ${id} 的Units:`, units);
 
     res.json({
       success: true,
       message: 'Units updated successfully',
       data: {
-        units: document.ProjectCostEstimateDetails.costEstimate.units
+        units: study.CostEstimateDetails.sdtmTableInput.units
       }
     });
 
@@ -692,29 +777,28 @@ async function deleteDocument(req, res) {
   try {
     const { id } = req.params;
     
-    console.log('🗑️ 删除文档请求:', id);
+    console.log('🗑️ 删除Study请求:', id);
     
-    const deletedDoc = await Document.findByIdAndDelete(id);
+    const deletedStudy = await Study.findByIdAndDelete(id);
     
-    if (!deletedDoc) {
+    if (!deletedStudy) {
       return res.status(404).json({ 
         success: false, 
-        message: 'Document not found' 
+        message: 'Study not found' 
       });
     }
     
-    console.log('✅ 文档删除成功:', {
-      id: deletedDoc._id,
-      studyNumber: deletedDoc.studyNumber,
-      documentType: deletedDoc.documentType
+    console.log('✅ Study删除成功:', {
+      id: deletedStudy._id,
+      studyNumber: deletedStudy.studyNumber
     });
     
     res.json({ 
       success: true, 
-      message: 'Document deleted successfully',
+      message: 'Study deleted successfully',
       data: {
-        deletedDocumentId: deletedDoc._id,
-        studyNumber: deletedDoc.studyNumber
+        deletedDocumentId: deletedStudy._id,
+        studyNumber: deletedStudy.studyNumber
       }
     });
   } catch (error) {

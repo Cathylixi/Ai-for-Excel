@@ -2,7 +2,7 @@ const { execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { promisify } = require('util');
-const { extractStudyNumber: extractStudyNumberWithAI } = require('./openaiService');
+const { extractStudyNumber: extractStudyNumberWithAI, identifyAssessmentScheduleForPdfTables } = require('./openaiService');
 
 const execFileAsync = promisify(execFile);
 
@@ -166,12 +166,13 @@ class PypdfService {
         processingTime: processTime,
         pythonCommand: pythonCmd,
         tempFileSize: fileBuffer.length,
-        parseMethod: 'pypdf-simple'
+        parseMethod: 'pdfplumber-simple'
       };
       
-      console.log(`✅ pypdf processing completed:`);
+      console.log(`✅ pdfplumber processing completed:`);
       console.log(`   - Total pages: ${result.total_pages}`);
       console.log(`   - Text length: ${result.text.length}`);
+      console.log(`   - Tables found: ${result.tables ? result.tables.length : 0}`);
       console.log(`   - Processing time: ${processTime}ms`);
       
       return result;
@@ -184,12 +185,13 @@ class PypdfService {
         success: false,
         error: error.message,
         text: '',
+        tables: [],
         total_pages: 0,
         processInfo: {
           processingTime: 0,
           pythonCommand: 'unknown',
           tempFileSize: fileBuffer.length,
-          parseMethod: 'pypdf-failed'
+          parseMethod: 'pdfplumber-failed'
         }
       };
     } finally {
@@ -217,7 +219,7 @@ class PypdfService {
           hasStructuredContent: false,
           sectionsCount: 0,
           tablesCount: 0,
-          parseMethod: pypdfResult.processInfo?.parseMethod || 'pypdf-failed',
+          parseMethod: pypdfResult.processInfo?.parseMethod || 'pdfplumber-failed',
           hasAssessmentSchedule: false,
           totalPages: 0
         }
@@ -225,7 +227,7 @@ class PypdfService {
     }
 
     // 🐛 DEBUG: Save original extracted text to local file for inspection
-    this.saveDebugFiles(pypdfResult.text, 'original');
+    // this.saveDebugFiles(pypdfResult.text, 'original');
 
     // Extract Study Number and Header Pattern from text using AI
     const aiResult = await this.extractStudyNumber(pypdfResult.text);
@@ -239,7 +241,7 @@ class PypdfService {
       console.log(`🧹 Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
       
       // 🐛 DEBUG: Save filtered text for comparison
-      this.saveDebugFiles(filteredText, 'filtered');
+      // this.saveDebugFiles(filteredText, 'filtered');
     } else {
       console.log(`📝 No header pattern detected, using original text`);
     }
@@ -248,25 +250,259 @@ class PypdfService {
     const sections = this.extractSectionsFromPdf(filteredText);
 
     // 🐛 DEBUG: Save sections to local file for inspection
-    this.saveSectionsDebug(sections);
+    // this.saveSectionsDebug(sections);
+
+    // Format PDF tables for mixed database schema
+    const formattedTables = this.formatPdfTablesForDatabase(pypdfResult.tables);
+
+    // Identify Assessment Schedule directly from PDF tables (array-based)
+    let assessmentSchedule = null;
+    let sdtmAnalysis = null;
+    try {
+      if (pypdfResult.tables && Array.isArray(pypdfResult.tables) && pypdfResult.tables.length > 0) {
+        const identified = await identifyAssessmentScheduleForPdfTables(pypdfResult.tables);
+        if (identified) {
+          assessmentSchedule = {
+            data: identified.data,
+            source: 'pdf',
+            tableIndex: identified.tableIndex,
+            confidence: identified.confidence,
+            identifiedBy: identified.identifiedBy,
+            page: identified.page
+          };
+
+          // DEBUG: persist identified schedule of assessment to backend/temp for verification
+          // this.saveAssessmentScheduleDebug(assessmentSchedule);
+
+          // Extract procedures from first column for CostEstimateDetails.sdtmAnalysis.procedures
+          // NOTE: Only extract procedures here, full SDTM analysis will be done in analyzeDocumentForSdtm
+          const procedures = this.extractProceduresFromPdfTable(identified);
+          if (procedures.length > 0) {
+            console.log(`✅ Extracted ${procedures.length} procedures from PDF Assessment Schedule for later analysis`);
+            sdtmAnalysis = {
+              success: true,
+              procedures: procedures,
+              summary: {
+                total_procedures: procedures.length,
+                total_sdtm_domains: 0,
+                unique_domains: [],
+                highComplexitySdtm: { count: 0, domains: [] },
+                mediumComplexitySdtm: { count: 0, domains: [] }
+              }
+            };
+          } else {
+            console.log('⚠️ No procedures extracted from PDF Assessment Schedule');
+            sdtmAnalysis = {
+              success: false,
+              procedures: [],
+              summary: {
+                total_procedures: 0,
+                total_sdtm_domains: 0,
+                unique_domains: [],
+                highComplexitySdtm: { count: 0, domains: [] },
+                mediumComplexitySdtm: { count: 0, domains: [] }
+              }
+            };
+          }
+        }
+      }
+    } catch (e) {
+      console.warn('⚠️ PDF Assessment Schedule identification/analysis failed:', e.message);
+    }
 
     return {
       extractedText: filteredText, // Now using filtered text!
       studyNumber: studyNumber,
       sectionedText: sections, // Now includes structured sections!
-      tables: [], // Empty for now - will implement later
-      assessmentSchedule: null, // Null for now - will implement later
+      tables: formattedTables, // Now formatted for mixed PDF/Word schema!
+      assessmentSchedule,
+      sdtmAnalysis,
       parseInfo: {
         hasStructuredContent: sections.length > 0,
         sectionsCount: sections.length,
-        tablesCount: 0,
-        parseMethod: pypdfResult.processInfo?.parseMethod || 'pypdf-advanced',
-        hasAssessmentSchedule: false,
+        tablesCount: formattedTables.length,
+        parseMethod: pypdfResult.processInfo?.parseMethod || 'pdfplumber-advanced',
+        hasAssessmentSchedule: !!assessmentSchedule,
         totalPages: pypdfResult.total_pages,
         processingTime: pypdfResult.processInfo?.processingTime || 0,
         headerFiltered: headerInfo ? headerInfo.hasHeader : false
       }
     };
+  }
+
+  /**
+   * Format PDF tables for mixed database schema (Word/PDF compatibility)
+   * @param {Array} pdfTables - Raw tables from pdfplumber
+   * @returns {Array} Formatted tables for database storage
+   */
+  formatPdfTablesForDatabase(pdfTables) {
+    if (!pdfTables || !Array.isArray(pdfTables)) {
+      return [];
+    }
+
+    return pdfTables.map((table, index) => {
+      // Validate table data
+      if (!table.data || !Array.isArray(table.data) || table.data.length === 0) {
+        console.warn(`⚠️ Table ${index + 1} has no valid data, skipping`);
+        return null;
+      }
+
+      // Clean and validate each row
+      const cleanedData = table.data.map(row => {
+        if (!Array.isArray(row)) {
+          return [];
+        }
+        return row.map(cell => {
+          // Convert to string and clean up
+          if (cell === null || cell === undefined) {
+            return '';
+          }
+          return String(cell).trim();
+        });
+      }).filter(row => row.length > 0); // Remove empty rows
+
+      if (cleanedData.length === 0) {
+        console.warn(`⚠️ Table ${index + 1} has no valid rows after cleaning, skipping`);
+        return null;
+      }
+
+      // Calculate consistent column count
+      const maxColumns = Math.max(...cleanedData.map(row => row.length));
+      
+      // Pad rows to have consistent column count
+      const normalizedData = cleanedData.map(row => {
+        while (row.length < maxColumns) {
+          row.push('');
+        }
+        return row;
+      });
+
+      console.log(`📊 Formatted PDF table ${index + 1}: ${normalizedData.length} rows × ${maxColumns} columns (page ${table.page})`);
+
+      return {
+        // PDF-specific fields
+        data: normalizedData,
+        page: table.page || 1,
+        rows: normalizedData.length,
+        columns: maxColumns,
+        
+        // Required common fields
+        source: 'pdf',
+        tableIndex: table.table_index || index + 1,
+        extractedAt: new Date()
+      };
+    }).filter(table => table !== null); // Remove null entries
+  }
+
+  /**
+   * DEBUG: Save identified Assessment Schedule to backend/temp for human verification.
+   * Saves as CSV file for easy viewing in Excel or other tools.
+   * @param {{ data?: string[][], htmlContent?: string, source?: string, tableIndex?: number, confidence?: number, identifiedBy?: string, page?: number }} schedule
+   */
+  saveAssessmentScheduleDebug(schedule) {
+    try {
+      if (!schedule) return;
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const source = schedule.source || (schedule.htmlContent ? 'word' : 'pdf');
+      const baseName = `debug_assessment_schedule_${source}_${timestamp}`;
+
+      // Save metadata as JSON
+      const metaData = {
+        source: source,
+        tableIndex: schedule.tableIndex ?? null,
+        confidence: schedule.confidence ?? null,
+        identifiedBy: schedule.identifiedBy || null,
+        page: schedule.page ?? null,
+        savedAt: new Date().toISOString()
+      };
+
+      const metaPath = path.join(this.tempDir, `${baseName}_meta.json`);
+      fs.writeFileSync(metaPath, JSON.stringify(metaData, null, 2), 'utf8');
+      console.log(`🐛 DEBUG: Assessment Schedule metadata saved to ${metaPath}`);
+
+      // Save table data as CSV
+      if (schedule.data && Array.isArray(schedule.data)) {
+        // Convert 2D array to CSV format
+        const csvContent = schedule.data.map(row => {
+          if (!Array.isArray(row)) return '';
+          // Escape CSV values: wrap in quotes if contains comma, quote, or newline
+          return row.map(cell => {
+            const cellStr = String(cell || '');
+            if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+              // Escape quotes by doubling them, then wrap in quotes
+              return `"${cellStr.replace(/"/g, '""')}"`;
+            }
+            return cellStr;
+          }).join(',');
+        }).join('\n');
+
+        const csvPath = path.join(this.tempDir, `${baseName}.csv`);
+        fs.writeFileSync(csvPath, csvContent, 'utf8');
+        console.log(`🐛 DEBUG: Assessment Schedule CSV saved to ${csvPath}`);
+        console.log(`📊 CSV contains ${schedule.data.length} rows × ${schedule.data[0]?.length || 0} columns`);
+      }
+
+      // If HTML is available, also save full HTML separately for convenient viewing
+      if (schedule.htmlContent) {
+        const htmlPath = path.join(this.tempDir, `${baseName}.html`);
+        fs.writeFileSync(htmlPath, String(schedule.htmlContent), 'utf8');
+        console.log(`🐛 DEBUG: Assessment Schedule HTML saved to ${htmlPath}`);
+      }
+    } catch (err) {
+      console.warn('⚠️ Failed to save Assessment Schedule debug file:', err.message);
+    }
+  }
+
+  /**
+   * Extract procedures (first column textual activities) from a PDF Assessment Schedule table (array-based).
+   * This mirrors the HTML flow but operates directly on 2D arrays.
+   * @param {{ data: string[][] }} pdfTable
+   * @returns {string[]} unique procedures list
+   */
+  extractProceduresFromPdfTable(pdfTable) {
+    try {
+      if (!pdfTable || !Array.isArray(pdfTable.data)) return [];
+      const rows = pdfTable.data;
+      const procedures = [];
+      let headerSkipped = false;
+
+      for (let r = 0; r < rows.length; r++) {
+        const row = Array.isArray(rows[r]) ? rows[r] : [];
+        if (row.length === 0) continue;
+        const firstCell = String(row[0] ?? '').trim();
+        if (!firstCell) continue;
+
+        if (!headerSkipped) {
+          const headerKeywords = ['procedure', 'assessment', 'activity', 'visit', 'evaluation', 'test'];
+          const isHeader = headerKeywords.some(k => firstCell.toLowerCase().includes(k) && firstCell.length < 50);
+          if (isHeader) {
+            headerSkipped = true;
+            continue;
+          }
+        }
+
+        if (
+          firstCell &&
+          firstCell.length > 3 &&
+          firstCell.length < 150 &&
+          !/^\d+$/.test(firstCell) &&
+          !/^[A-Z]\d*$/.test(firstCell) &&
+          firstCell !== '-' &&
+          firstCell !== 'N/A'
+        ) {
+          const isTimePoint = /^(Day\s+\d+\s+(Pre|Post)[\s-]?dose|Visit\s+\d+|Week\s+\d+|Month\s+\d+|Screening\s*$|Baseline\s*$|Follow[\s-]?up\s*$|End\s+of\s+Study|EOS\s*$|Cycle\s+\d+\s*$)/i.test(firstCell);
+          const isTooDescriptive = firstCell.length > 100 && firstCell.includes(':');
+          if (!isTimePoint && !isTooDescriptive) {
+            procedures.push(firstCell);
+          }
+        }
+      }
+
+      return Array.from(new Set(procedures));
+    } catch (err) {
+      console.warn('extractProceduresFromPdfTable failed:', err.message);
+      return [];
+    }
   }
 
   /**
@@ -782,7 +1018,7 @@ class PypdfService {
   }
 
   /**
-   * Create hierarchical sections with proper content ranges - New Logic
+   * Create hierarchical sections with proper content ranges
    * @param {string} text - PDF text content
    * @param {Array} numberedTitles - Array of numbered titles
    * @returns {Array} Array of hierarchical sections
@@ -794,97 +1030,84 @@ class PypdfService {
       return sections;
     }
     
-    const lines = text.split('\n');
-    
-    console.log(`🏗️ Creating sections for ${numberedTitles.length} titles with post-validation logic`);
-    
     for (let i = 0; i < numberedTitles.length; i++) {
       const currentTitle = numberedTitles[i];
-      const nextSameLevelTitle = this.findNextSameLevelTitle(numberedTitles, i);
+      const nextTitle = numberedTitles[i + 1];
       
-      // Step 1: Create section immediately when title is found
+      // Calculate content start position (after the title line)
+      const lines = text.split('\n');
+      const contentStartLine = currentTitle.lineIndex + 1;
+      
+      // Calculate content end position
+      let contentEndLine = lines.length - 1;
+      
+      if (nextTitle) {
+        // Find the next title at same or higher level (lower level number)
+        for (let j = i + 1; j < numberedTitles.length; j++) {
+          const checkTitle = numberedTitles[j];
+          if (checkTitle.level <= currentTitle.level) {
+            contentEndLine = checkTitle.lineIndex - 1;
+            break;
+          }
+        }
+      }
+      
+      // Check if there's a direct child title immediately following
+      const immediateChild = numberedTitles.find(title => 
+        title.level > currentTitle.level && 
+        title.lineIndex > currentTitle.lineIndex &&
+        title.lineIndex <= contentStartLine + 2  // Allow 1-2 empty lines between parent and child
+      );
+      
+      let content = '';
+      
+      if (immediateChild) {
+        // If there's an immediate child, this parent has no direct content
+        console.log(`📋 Parent "${currentTitle.number}" has immediate child "${immediateChild.number}" - no direct content`);
+        content = '';
+      } else {
+        // Extract content between start and end
+        const contentLines = lines.slice(contentStartLine, contentEndLine + 1);
+        content = contentLines.join('\n').trim();
+        
+        // Remove sub-section titles and their content from parent content
+        const subTitles = numberedTitles.slice(i + 1).filter(title => 
+          title.level > currentTitle.level && title.lineIndex <= contentEndLine
+        );
+        
+        if (subTitles.length > 0) {
+          // Find content only up to the first sub-title
+          const firstSubTitle = subTitles[0];
+          const firstSubTitleLine = firstSubTitle.lineIndex;
+          
+          // Get content only up to (but not including) the first sub-title
+          const parentContentLines = lines.slice(contentStartLine, firstSubTitleLine);
+          content = parentContentLines.join('\n').trim();
+          
+          console.log(`📋 Parent "${currentTitle.number}" content ends before child "${firstSubTitle.number}"`);
+        }
+      }
+      
+      // Create section object
+      const cleanContent = content.trim();
+      const finalContent = cleanContent.length > 0 ? cleanContent : null;
+      
       const section = {
         title: currentTitle.title,
         level: currentTitle.level,
-        content: null, // Will be determined by validation
+        content: finalContent,
         source: "pattern",
         patternType: currentTitle.type,
         originalLine: currentTitle.originalLine,
         number: currentTitle.number
       };
       
-      // Step 2: Determine content range (to next same/higher level title)
-      const contentStartLine = currentTitle.lineIndex + 1;
-      let contentEndLine = lines.length - 1;
-      
-      if (nextSameLevelTitle) {
-        contentEndLine = nextSameLevelTitle.lineIndex - 1;
-      }
-      
-      // Step 3: Extract content in this range
-      const contentRange = lines.slice(contentStartLine, contentEndLine + 1);
-      
-      // Step 4: Get all child titles in this range
-      const childTitles = numberedTitles.filter(title => 
-        title.level > currentTitle.level &&
-        title.lineIndex > currentTitle.lineIndex &&
-        title.lineIndex <= contentEndLine
-      );
-      
-      // Step 5: Validate if there's real content (non-title lines)
-      const realContent = this.extractRealContent(contentRange, childTitles, contentStartLine);
-      
-      // Step 6: Set final content based on validation
-      section.content = realContent.length > 0 ? realContent : null;
-      
       sections.push(section);
       
-      console.log(`📄 [L${section.level}] ${section.number} "${section.title}" → ${section.content ? `${realContent.length} chars` : 'NULL content'} (${childTitles.length} children)`);
+      // console.log(`  📄 Section: [L${section.level}] ${section.number} ${section.title} (${finalContent ? `${finalContent.length} chars` : 'null content'})`);
     }
     
     return sections;
-  }
-  
-  /**
-   * Find the next title at the same or higher level
-   * @param {Array} numberedTitles - Array of all titles
-   * @param {number} currentIndex - Current title index
-   * @returns {Object|null} Next same/higher level title or null
-   */
-  findNextSameLevelTitle(numberedTitles, currentIndex) {
-    const currentLevel = numberedTitles[currentIndex].level;
-    
-    for (let i = currentIndex + 1; i < numberedTitles.length; i++) {
-      if (numberedTitles[i].level <= currentLevel) {
-        return numberedTitles[i];
-      }
-    }
-    
-    return null; // No more same/higher level titles
-  }
-  
-  /**
-   * Extract real content (excluding child title lines)
-   * @param {Array} contentLines - Lines in the content range
-   * @param {Array} childTitles - Child titles in this range
-   * @param {number} contentStartLine - Starting line index for content
-   * @returns {string} Real content or empty string
-   */
-  extractRealContent(contentLines, childTitles, contentStartLine) {
-    const childTitleLines = new Set(childTitles.map(child => child.lineIndex));
-    const realContentLines = [];
-    
-    for (let i = 0; i < contentLines.length; i++) {
-      const line = contentLines[i];
-      const actualLineIndex = contentStartLine + i;
-      
-      // Skip empty lines and child title lines
-      if (line.trim() && !childTitleLines.has(actualLineIndex)) {
-        realContentLines.push(line);
-      }
-    }
-    
-    return realContentLines.join('\n').trim();
   }
 
   /**

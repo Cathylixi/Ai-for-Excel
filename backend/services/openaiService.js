@@ -6,6 +6,125 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY
 });
 
+/**
+ * Identify the Assessment Schedule from PDF tables (array-based) using AI.
+ * This mirrors the Word HTML flow but adapts the prompt to 2D array tables.
+ *
+ * @param {Array} tables - Array of PDF tables with shape: { data: string[][], rows: number, columns: number, page?: number, table_index?: number }
+ * @returns {Promise<null|{ tableIndex: number, data: string[][], page?: number, rows: number, columns: number, confidence: number, identifiedBy: string, reason?: string }>}
+ */
+async function identifyAssessmentScheduleForPdfTables(tables) {
+  try {
+    if (!Array.isArray(tables) || tables.length === 0) {
+      return null;
+    }
+
+    console.log('🤖 Start AI identification for PDF Assessment Schedule...');
+
+    for (let i = 0; i < tables.length; i++) {
+      const table = tables[i] || {};
+      const data = Array.isArray(table.data) ? table.data : [];
+      const headers = Array.isArray(data[0]) ? data[0] : [];
+      const firstRow = Array.isArray(data[1]) ? data[1] : [];
+      const totalRows = Number(table.rows || data.length || 0);
+      const totalCols = Number(table.columns || (Array.isArray(headers) ? headers.length : 0));
+
+      const timepointHit = headers.filter(h => h && /(visit|day|week|month|cycle|screening|baseline|follow)/i.test(String(h))).length > 0 ? 'YES' : 'NO';
+
+      const prompt = `You are a clinical trial data expert. Your task is to identify the MAIN "Schedule of Assessment" or "Schedule of Events" table that contains the comprehensive visit-by-procedure matrix for the entire study.
+
+WHAT WE'RE LOOKING FOR:
+This must be the PRIMARY schedule table that shows:
+- COMPREHENSIVE list of study procedures/assessments (typically 10+ different types)
+- MULTIPLE study visits/timepoints (typically 5+ visits like Screening, Baseline, Week 2, Week 4, Month 3, etc.)
+- MATRIX format showing which procedures happen at which visits (usually marked with X, •, or checkmarks)
+
+MUST CONTAIN DIVERSE ASSESSMENT TYPES:
+- Laboratory tests (blood work, chemistry, hematology)
+- Vital signs (blood pressure, heart rate, temperature)
+- Physical examinations
+- Medical history/concomitant medications
+- Questionnaires/quality of life assessments
+- Safety assessments/adverse events
+- Study drug administration/accountability
+
+REJECT if table contains:
+- Only a few specific procedures (< 8 procedures)
+- Only one type of assessment (e.g., only imaging, only questionnaires)
+- Limited timepoints (< 4 visits)
+- Detailed sub-procedures of one main assessment
+- Summary or subset tables
+
+Table Analysis (array-based table):
+- Headers: ${headers.join(', ')}
+- First data row: ${firstRow.join(', ')}
+- Total rows: ${totalRows}, Total columns: ${totalCols}
+
+Key indicators:
+- Contains timepoint keywords? ${timepointHit}
+- Multiple columns (3+)? ${totalCols >= 3 ? 'YES' : 'NO'}
+- Multiple rows (8+)? ${totalRows >= 8 ? 'YES' : 'NO'}
+
+Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONLY with JSON:
+{
+  "isAssessmentSchedule": true/false,
+  "confidence": 0.0-1.0,
+  "reason": "Brief explanation focusing on comprehensiveness and diversity"
+}`;
+
+      try {
+        const response = await openai.chat.completions.create({
+          model: 'gpt-3.5-turbo',
+          messages: [{ role: 'user', content: prompt }],
+          max_tokens: 200,
+          temperature: 0.1
+        });
+
+        const aiText = (response.choices?.[0]?.message?.content || '').trim();
+        console.log(`📊 PDF table ${i} AI reply:`, aiText);
+
+        let analysis;
+        try {
+          analysis = JSON.parse(aiText);
+        } catch (e) {
+          const start = aiText.indexOf('{');
+          const end = aiText.lastIndexOf('}') + 1;
+          if (start >= 0 && end > start) {
+            analysis = JSON.parse(aiText.slice(start, end));
+          } else {
+            throw e;
+          }
+        }
+
+        if (analysis && analysis.isAssessmentSchedule && Number(analysis.confidence) > 0.7) {
+          console.log(`✅ Found PDF Assessment Schedule at index ${i}, confidence ${analysis.confidence}`);
+          return {
+            tableIndex: typeof table.table_index === 'number' ? table.table_index : i,
+            data: data,
+            page: table.page,
+            rows: totalRows,
+            columns: totalCols,
+            confidence: Number(analysis.confidence) || 0.7,
+            identifiedBy: 'ai_pdf',
+            reason: analysis.reason || undefined
+          };
+        }
+      } catch (apiError) {
+        console.warn(`⚠️ AI identification failed for PDF table ${i}: ${apiError.message}`);
+      }
+
+      // Small delay to avoid bursting the API
+      await new Promise(r => setTimeout(r, 200));
+    }
+
+    console.log('❌ No Assessment Schedule identified among PDF tables');
+    return null;
+  } catch (err) {
+    console.error('❌ identifyAssessmentScheduleForPdfTables failed:', err.message);
+    return null;
+  }
+}
+
 // AI识别评估时间表函数
 async function identifyAssessmentScheduleWithAI(tables) {
   try {
@@ -305,5 +424,6 @@ ${head}`;
 
 module.exports = {
   identifyAssessmentScheduleWithAI,
-  extractStudyNumber
+  extractStudyNumber,
+  identifyAssessmentScheduleForPdfTables
 }; 

@@ -34,7 +34,8 @@ async function parseWordDocumentStructure(fileBuffer) {
     const extractedText = rawTextResult.value;
 
     // 提取Study Number（AI + 兜底）
-    const studyNumber = await extractStudyNumber(extractedText);
+    const aiResult = await extractStudyNumber(extractedText);
+    const studyNumber = aiResult.studyNumber;
     if (studyNumber) console.log('🔎 识别到 Study Number:', studyNumber);
     
     // 使用cheerio解析HTML
@@ -48,6 +49,7 @@ async function parseWordDocumentStructure(fileBuffer) {
       const tableHtml = $.html($(this));
       tables.push({
         htmlContent: tableHtml,
+        source: 'word', // Required for mixed Word/PDF schema
         tableIndex: tableIndex++,
         extractedAt: new Date()
       });
@@ -92,7 +94,8 @@ async function parseWordDocumentStructure(fileBuffer) {
     // 回退到基础的文本提取
     try {
       const rawTextResult = await mammoth.extractRawText({ path: filePath });
-      const fallbackStudyNumber = await extractStudyNumber(rawTextResult.value);
+      const fallbackAiResult = await extractStudyNumber(rawTextResult.value);
+      const fallbackStudyNumber = fallbackAiResult.studyNumber;
       return {
         extractedText: rawTextResult.value,
         sectionedText: [],

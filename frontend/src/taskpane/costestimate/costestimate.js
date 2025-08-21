@@ -187,8 +187,8 @@ async function populateExcelWithSelectedProjects(passedProjectDetails = null) {
           const response = await fetch(`${moduleConfig.API_BASE_URL}/api/documents/${currentDocumentId}/content`);
           if (response.ok) {
             const docData = await response.json();
-            if (docData.document && docData.document.ProjectCostEstimateDetails?.projectSelection?.selectionDetails) {
-              savedProjectDetails = docData.document.ProjectCostEstimateDetails.projectSelection.selectionDetails;
+            if (docData.document && docData.document.CostEstimateDetails?.projectSelection?.selectionDetails) {
+              savedProjectDetails = docData.document.CostEstimateDetails.projectSelection.selectionDetails;
             }
           }
         } catch (error) {
@@ -501,10 +501,14 @@ function displaySDTMAnalysis(sdtmAnalysis) {
   }
 
   // 🔥 设置全局currentSDTMData供确认功能使用
-  window.currentSDTMData = sdtmAnalysis;
+  // 将Map格式的mappings转换为数组格式，便于编辑功能使用
+  window.currentSDTMData = {
+    ...sdtmAnalysis,
+    mappings: sdtmAnalysis.mappings ? convertMapToMappingsList(sdtmAnalysis.mappings, sdtmAnalysis.procedures) : (sdtmAnalysis.procedures || []).map(proc => ({procedure: proc, sdtm_domains: []}))
+  };
 
   // 更新统计信息
-  const totalProcedures = sdtmAnalysis.procedures.length;
+  const totalProcedures = sdtmAnalysis.procedures?.length || 0;
   const uniqueDomains = sdtmAnalysis.summary?.unique_domains || [];
   const totalDomains = uniqueDomains.length;
 
@@ -559,8 +563,8 @@ function displaySDTMAnalysis(sdtmAnalysis) {
 
   // 显示程序到域的映射
   console.log('🔍 [DEBUG] 开始显示映射列表...');
-  // 🔥 修正：使用mappings数组而不是procedures数组
-  displayFlatMappingsList(sdtmAnalysis.mappings || sdtmAnalysis.procedures);
+  // 🔥 使用已经转换为数组格式的mappings
+  displayFlatMappingsList(window.currentSDTMData.mappings);
   
   // 显示容器
   const mappingsContainer = document.getElementById('sdtm-mappings-container');
@@ -577,6 +581,54 @@ function displaySDTMAnalysis(sdtmAnalysis) {
 
 // 编辑模式状态
 let isEditMode = false;
+
+// 🔥 新增：将Map格式的mappings转换为前端期望的数组格式
+function convertMapToMappingsList(mappingsMap, procedures = []) {
+  console.log('🔍 [DEBUG] 转换Map格式mappings:', mappingsMap);
+  
+  if (!mappingsMap) return [];
+  
+  const result = [];
+  
+  // 如果mappings是Map对象
+  if (mappingsMap instanceof Map) {
+    mappingsMap.forEach((domains, procedure) => {
+      const domainArray = domains ? domains.split(',').map(d => d.trim()).filter(d => d) : [];
+      result.push({
+        procedure: procedure,
+        sdtm_domains: domainArray
+      });
+    });
+  } 
+  // 如果mappings是普通对象
+  else if (typeof mappingsMap === 'object') {
+    Object.entries(mappingsMap).forEach(([procedure, domains]) => {
+      let domainArray = [];
+      if (typeof domains === 'string') {
+        domainArray = domains.split(',').map(d => d.trim()).filter(d => d);
+      } else if (Array.isArray(domains)) {
+        domainArray = domains;
+      }
+      result.push({
+        procedure: procedure,
+        sdtm_domains: domainArray
+      });
+    });
+  }
+  
+  // 如果没有mappings但有procedures，创建空映射
+  if (result.length === 0 && procedures && procedures.length > 0) {
+    procedures.forEach(procedure => {
+      result.push({
+        procedure: procedure,
+        sdtm_domains: []
+      });
+    });
+  }
+  
+  console.log('✅ 转换后的mappings列表:', result);
+  return result;
+}
 
 // 切换编辑模式
 function toggleEditMode() {
@@ -936,7 +988,7 @@ function displayFlatMappingsList(mappingsData) {
     const domains = mapping.sdtm_domains || [];
     
     mappingDiv.innerHTML = `
-      <div class="flat-procedure-name">${procedureName}</div>
+      <div class="flat-procedure-name"><strong>${procedureName}:</strong></div>
       <div class="flat-domain-tags">
         ${domains.map(domain => 
           `<span class="domain-tag">${domain}</span>`
@@ -1083,7 +1135,7 @@ async function confirmSDTMAnalysis() {
         const docResp = await fetch(`${moduleConfig.API_BASE_URL}/api/documents/${currentDocumentId}/content`);
         if (docResp.ok) {
           const docData = await docResp.json();
-          const snapshot = docData?.document?.ProjectCostEstimateDetails?.costEstimate?.['SDTM Datasets Production and Validation'];
+          const snapshot = docData?.document?.CostEstimateDetails?.sdtmTableInput?.['SDTM Datasets Production and Validation'];
           if (snapshot) {
             console.log('🔧 使用文档中的快照数据...');
             await applySDTMUnitsAndCostsToExcel(snapshot);
@@ -1715,7 +1767,7 @@ async function loadAndDisplaySDTMResults() {
     console.log('🔍 [DEBUG] API返回的完整数据结构:', JSON.stringify(data, null, 2));
     
     // 🔥 获取项目状态
-    const sdtmAnalysisStatus = data.document?.ProjectCostEstimateDetails?.sdtmAnalysisStatus;
+    const sdtmAnalysisStatus = data.document?.CostEstimateDetails?.sdtmAnalysisStatus;
     console.log('🔍 [DEBUG] 当前项目状态:', sdtmAnalysisStatus);
     
     // 🔥 Step 1: 重建Excel基础表格结构（所有状态都需要）
@@ -1724,7 +1776,7 @@ async function loadAndDisplaySDTMResults() {
     
     // 🔥 Step 2: 填充已选择的项目内容（所有状态都需要）
     console.log('🔧 填充已选择的项目内容...');
-    const projectSelection = data.document?.ProjectCostEstimateDetails?.projectSelection?.selectionDetails;
+    const projectSelection = data.document?.CostEstimateDetails?.projectSelection?.selectionDetails;
     if (projectSelection && Object.keys(projectSelection).length > 0) {
       console.log('🔍 [DEBUG] 传递项目选择数据:', projectSelection);
       await populateExcelWithSelectedProjects(projectSelection);
@@ -1737,7 +1789,7 @@ async function loadAndDisplaySDTMResults() {
     // 🔥 Step 3: 根据状态恢复Excel数据
     if (sdtmAnalysisStatus === 'user_confirmed_sdtm_done') {
       // 已确认状态：恢复完整的Unit和Cost数据
-      const costEstimate = data.document?.ProjectCostEstimateDetails?.costEstimate;
+      const costEstimate = data.document?.CostEstimateDetails?.sdtmTableInput;
       const sdtmSection = costEstimate?.['SDTM Datasets Production and Validation'];
       
       if (sdtmSection && sdtmSection.units) {
@@ -1746,7 +1798,7 @@ async function loadAndDisplaySDTMResults() {
       }
       
       // 恢复Notes数据
-      const userConfirmedSdtm = data.document?.ProjectCostEstimateDetails?.userConfirmedSdtm;
+      const userConfirmedSdtm = data.document?.CostEstimateDetails?.userConfirmedSdtm;
       if (userConfirmedSdtm && userConfirmedSdtm.success) {
         console.log('🔧 恢复已确认的SDTM Notes...');
         await applySDTMNotesToExcel(userConfirmedSdtm);
@@ -1759,16 +1811,33 @@ async function loadAndDisplaySDTMResults() {
       console.log('✅ Excel状态已恢复到项目选择完成状态');
     }
     
-    // 🔥 Step 4: 显示SDTM分析结果界面（如果有的话）
-    const sdtmData = data.document?.sdtmData?.original;
-    console.log('🔍 [DEBUG] 提取的SDTM数据:', sdtmData);
+    // 🔥 Step 4: 显示SDTM分析结果界面（优先使用已确认的数据）
+    let sdtmDataToDisplay = null;
     
-    if (sdtmData && sdtmData.success) {
+    // 优先检查是否有用户确认的数据
+    const userConfirmedSdtm = data.document?.CostEstimateDetails?.userConfirmedSdtm;
+    const originalSdtmAnalysis = data.document?.CostEstimateDetails?.sdtmAnalysis;
+    
+    if (userConfirmedSdtm && userConfirmedSdtm.success && userConfirmedSdtm.procedures?.length > 0) {
+      console.log('🔍 [DEBUG] 使用用户确认的SDTM数据');
+      // 用户已确认的数据，需要将Map格式的mappings转换为数组格式以便显示
+      sdtmDataToDisplay = {
+        ...userConfirmedSdtm,
+        mappings: userConfirmedSdtm.mappings ? convertMapToMappingsList(userConfirmedSdtm.mappings, userConfirmedSdtm.procedures) : []
+      };
+    } else if (originalSdtmAnalysis && (originalSdtmAnalysis.success || originalSdtmAnalysis.procedures?.length > 0)) {
+      console.log('🔍 [DEBUG] 使用原始AI分析的SDTM数据');
+      sdtmDataToDisplay = originalSdtmAnalysis;
+    }
+    
+    console.log('🔍 [DEBUG] 最终选择的SDTM数据:', sdtmDataToDisplay);
+    
+    if (sdtmDataToDisplay) {
       console.log('✅ SDTM分析结果加载成功');
       // 显示SDTM分析结果
-      await displaySDTMAnalysis(sdtmData);
+      await displaySDTMAnalysis(sdtmDataToDisplay);
     } else {
-      console.warn('⚠️ 没有找到有效的SDTM分析结果, sdtmData:', sdtmData);
+      console.warn('⚠️ 没有找到有效的SDTM分析结果');
       moduleConfig.showStatusMessage('No SDTM analysis results found', 'warning');
     }
     

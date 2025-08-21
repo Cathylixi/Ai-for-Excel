@@ -3,12 +3,13 @@
  * 职责：用户引导和数据输入
  */
 
-// 全局变量 (从主文件引用)
+// Global variables (injected from controller)
 // const API_BASE_URL - 在主文件中定义
 // let uploadedProtocol - 在主文件中定义  
 // window.currentDocumentId - 全局状态
 // window.pendingConfirmation - AI确认状态
 // let lastParsedCommand - AI解析结果
+// window.uploadContext - upload entry context ('default' | 'from_chat')
 
 // ===== AI Assistant 模块 (Step 1) =====
 
@@ -80,6 +81,37 @@ function resetAIChatInterface() {
   console.log('✅ AI聊天界面已重置到初始状态');
 }
 
+// Create an action bubble with a primary button inside the chat area
+function addActionBubble(label, actionId) {
+  const chatMessages = document.getElementById('chat-messages');
+  const messageDiv = document.createElement('div');
+  messageDiv.className = 'message ai-message';
+  messageDiv.innerHTML = `
+    <div class="message-content">
+      <button class="ms-Button ms-Button--primary" data-action-id="${actionId}">
+        <span class="ms-Button-label">${label}</span>
+      </button>
+    </div>`;
+  chatMessages.appendChild(messageDiv);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Delegate click actions for chat action bubbles
+document.addEventListener('click', (e) => {
+  const target = e.target.closest('[data-action-id]');
+  if (!target) return;
+  const actionId = target.getAttribute('data-action-id');
+  if (actionId === 'navigate_to_upload') {
+    // Mark context and navigate to upload step
+    try { window.uploadContext = 'from_chat'; } catch (_) {}
+    if (moduleConfig && typeof moduleConfig.showStep === 'function') {
+      moduleConfig.showStep(2);
+    } else if (typeof window.showStep === 'function') {
+      window.showStep(2);
+    }
+  }
+});
+
 // 处理聊天发送（调用后端解析 → 确认 → 查库 → 导航）
 async function handleChatSend() {
   const chatInput = document.getElementById('chat-input');
@@ -102,10 +134,10 @@ async function handleChatSend() {
     hideTypingIndicator();
 
     if (!parsed || (!parsed.studyIdentifier && !parsed.matchedTask)) {
-      // 检查是否是通用的"开始新项目"请求
+      // Generic entry: allow starting a new project quickly
       if (userMessage.toLowerCase().includes('start') || userMessage.toLowerCase().includes('new project') || userMessage.toLowerCase().includes('upload')) {
         addChatMessage("Let me take you to start a new project by uploading your protocol.", 'ai');
-        await safeDelayedNavigation(2); // 跳转到Upload (Step 2)
+        addActionBubble('Click to upload protocol', 'navigate_to_upload');
         return;
       }
       addChatMessage("I couldn't understand the study number or task. Supported tasks are: Cost Estimate, SAS Analysis. Please try e.g. 'I want to do Cost Estimate for study SK123-KBI', or say 'start new project'.", 'ai');
@@ -118,7 +150,8 @@ async function handleChatSend() {
     askForConfirmation(studyText, taskText, parsed.matchedTask ? parsed.matchedTask.key : null);
   } catch (e) {
     hideTypingIndicator();
-    addChatMessage('Sorry, parsing failed. Please try again, or say "start new project" to proceed with upload.', 'ai');
+    addChatMessage('Sorry, parsing failed. Please try again, or click below to upload a protocol.', 'ai');
+    addActionBubble('Click to upload protocol', 'navigate_to_upload');
   }
 }
 
@@ -278,9 +311,9 @@ async function handleLookupResult(data) {
   console.log('🔍 [DEBUG] handleLookupResult received data:', JSON.stringify(data, null, 2));
   
   if (!data || data.foundStudy === false) {
-    console.log('🔍 [DEBUG] Study not found, navigating to upload page');
+    console.log('🔍 [DEBUG] Study not found, offering upload action in chat');
     addChatMessage("We could not find the corresponding study.", 'ai');
-    await safeDelayedNavigation(2); // 跳转到Upload页面 (Step 2)
+    addActionBubble('Click to upload protocol', 'navigate_to_upload');
     return;
   }
 
@@ -519,7 +552,48 @@ async function handleProtocolUpload(file) {
     }
 
     showProtocolResult(file);
-    moduleConfig.showStatusMessage('Clinical Protocol uploaded. Click Next to select projects.', 'success');
+    // Context-aware success UX
+    const fromChat = (typeof window !== 'undefined' && window.uploadContext === 'from_chat');
+    if (fromChat) {
+      // In chat-driven flow: reveal a lightweight "Upload Finished" button area
+      // Create button below the entire file box (centered)
+      let finishBtn = document.getElementById('protocol-finish-btn');
+      if (!finishBtn) {
+        const step2Container = document.getElementById('mainpage-step2-container');
+        const btn = document.createElement('button');
+        btn.id = 'protocol-finish-btn';
+        btn.className = 'ms-Button ms-Button--primary';
+        btn.innerHTML = '<span class="ms-Button-label">Upload Finished</span>';
+        btn.style.marginTop = '15px';
+        btn.style.display = 'block';
+        btn.style.marginLeft = 'auto';
+        btn.style.marginRight = 'auto';
+        btn.style.fontSize = '16px';
+        btn.style.padding = '12px 24px';
+        btn.style.minWidth = '160px';
+        btn.style.transform = 'scale(1.2)';
+        btn.style.borderRadius = '8px';
+        btn.addEventListener('click', () => {
+          try { window.uploadContext = 'default'; } catch (_) {}
+          // Navigate back to AI chat (Step 1)
+          if (moduleConfig && typeof moduleConfig.showStep === 'function') {
+            moduleConfig.showStep(1);
+          } else if (typeof window.showStep === 'function') {
+            window.showStep(1);
+          }
+          // Post a confirmation message into chat
+          setTimeout(() => {
+            try {
+              addChatMessage('✅ Your protocol has been uploaded successfully! I can access the document now.', 'ai');
+            } catch (e) { console.log('post-upload chat message failed:', e); }
+          }, 200);
+        });
+        if (step2Container) step2Container.appendChild(btn);
+      }
+      moduleConfig.showStatusMessage('Clinical Protocol uploaded. Click "Upload Finished" to return to chat.', 'success');
+    } else {
+      moduleConfig.showStatusMessage('Clinical Protocol uploaded. Click Next to select projects.', 'success');
+    }
   } catch (error) {
     console.error('Protocol upload error:', error);
     moduleConfig.showStatusMessage(`Upload failed: ${error.message}`, 'error');
@@ -711,7 +785,7 @@ function insertMainPageHTML() {
     step2Container.innerHTML = `
       <div class="mainpage-step2">
         <h3 class="ms-font-l">📋 Protocol Upload</h3>
-        <div class="upload-area" id="protocol-upload-area">
+        <div class="upload-area" id="protocol-upload-area" style="min-height: 120px; padding: 20px 24px;">
           <div class="upload-content">
             <i class="ms-Icon ms-Icon--CloudUpload ms-font-xxl upload-icon"></i>
             <h4 class="ms-font-l">Upload Protocol Document</h4>

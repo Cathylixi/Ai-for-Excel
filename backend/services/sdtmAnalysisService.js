@@ -99,7 +99,7 @@ async function analyzeSDTMMapping(procedures) {
       return {
         success: false,
         message: '没有procedures可供分析',
-        mappings: [],
+        mappings: new Map(),
         summary: {
           total_procedures: 0,
           total_sdtm_domains: 0,
@@ -147,15 +147,15 @@ Please analyze based on CDISC SDTM standards. Common SDTM domains include:
    - The final High and Medium sets must be mutually exclusive at the domain level, and their union size must equal the length of unique_domains.
    - Also, total_sdtm_domains must equal the length of unique_domains and equal the size of the union of High and Medium sets.
 
-Please return JSON format, ensuring the mappings array contains exactly ${procedures.length} entries (one per procedure):
+Please return JSON format with simplified mappings object:
 {
-  "mappings": [
-    {
-      "procedure": "exact matching procedure name", 
-      "sdtm_domains": ["corresponding domains"],
-      "complexity": "High" or "Medium"
-    }
-  ],
+  "mappings": {
+    "exact matching procedure name": ["corresponding domains"],
+    "another procedure name": ["domain1", "domain2"]
+  },
+  "complexity": {
+    "procedure name": "High" or "Medium"
+  },
   "summary": {
     "total_procedures": ${procedures.length},
     "total_sdtm_domains": "length of unique_domains array (deduplicated unique domain count)",
@@ -204,7 +204,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
       return {
         success: false,
         message: '分析结果解析失败',
-        mappings: [],
+        mappings: new Map(),
         summary: {
           total_procedures: procedures.length,
           total_sdtm_domains: 0,
@@ -220,18 +220,24 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
 
     // 统一后处理：基于域去重并确保 High 覆盖 Medium、互斥且一致
     const domainToComplexity = new Map();
-    (analysis.mappings || []).forEach(m => {
-      const c = m && m.complexity === 'High' ? 'High' : 'Medium';
-      const domains = Array.isArray(m?.sdtm_domains) ? m.sdtm_domains : [];
-      domains.forEach(d => {
-        const dom = (d || '').trim();
-        if (!dom) return;
-        const existing = domainToComplexity.get(dom);
-        if (!existing || (existing === 'Medium' && c === 'High')) {
-          domainToComplexity.set(dom, c);
-        }
+    
+    // 处理新的简化mappings格式: { "procedure": ["domain1", "domain2"] }
+    if (analysis.mappings && typeof analysis.mappings === 'object') {
+      Object.entries(analysis.mappings).forEach(([procedure, domains]) => {
+        // 获取procedure的复杂度
+        const c = analysis.complexity && analysis.complexity[procedure] === 'High' ? 'High' : 'Medium';
+        const domainsArray = Array.isArray(domains) ? domains : [];
+        
+        domainsArray.forEach(d => {
+          const dom = (d || '').trim();
+          if (!dom) return;
+          const existing = domainToComplexity.get(dom);
+          if (!existing || (existing === 'Medium' && c === 'High')) {
+            domainToComplexity.set(dom, c);
+          }
+        });
       });
-    });
+    }
     const uniqueDomains = Array.from(domainToComplexity.keys());
     const highDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'High');
     const mediumDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'Medium');
@@ -249,9 +255,26 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
 
     console.log(`✅ SDTM分析完成 - 发现 ${analysis.summary.unique_domains.length} 个不同的SDTM域`);
     
+    // 转换mappings为Map格式以便MongoDB存储 - 简化为字符串格式
+    const mappingsMap = new Map();
+    if (analysis.mappings && typeof analysis.mappings === 'object') {
+      Object.entries(analysis.mappings).forEach(([procedure, domains]) => {
+        if (Array.isArray(domains)) {
+          // 将数组转换为逗号分隔的字符串，简洁明了
+          const domainsString = domains.join(', ');
+          mappingsMap.set(procedure, domainsString);
+        }
+      });
+    }
+    
+    console.log(`📊 简化映射格式: ${mappingsMap.size} 个procedures映射`);
+    Array.from(mappingsMap.entries()).slice(0, 3).forEach(([proc, domains]) => {
+      console.log(`   "${proc}": "${domains}"`);
+    });
+    
     return {
       success: true,
-      mappings: analysis.mappings,
+      mappings: mappingsMap,
       summary: analysis.summary,
       analyzedAt: new Date()
     };
@@ -261,7 +284,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
     return {
       success: false,
       message: error.message || 'SDTM分析暂时不可用',
-      mappings: [],
+      mappings: new Map(),
       summary: {
         total_procedures: procedures.length,
         total_sdtm_domains: 0,

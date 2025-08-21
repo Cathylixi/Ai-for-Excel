@@ -1,4 +1,4 @@
-const Document = require('../models/documentModel');
+const Study = require('../models/studyModel');
 const { parseUserCommand, SUPPORTED_TASKS } = require('../services/commandParserService');
 
 // 构建对 studyNumber 友好的不区分大小写、兼容多种连字符/空白的正则
@@ -50,9 +50,9 @@ async function lookupStudyTask(req, res) {
 
     // 使用不区分大小写，且兼容不同连字符/空白的查询
     const studyRegex = buildStudyNumberRegex(studyIdentifier);
-    const doc = await Document.findOne({ 
+    const doc = await Study.findOne({ 
       studyNumber: { $regex: studyRegex }
-    }).select('_id studyNumber projectDone ProjectCostEstimateDetails.sdtmAnalysisStatus');
+    }).select('_id studyNumber projectDone CostEstimateDetails.sdtmAnalysisStatus');
     if (!doc) {
       return res.json({ success: true, data: { foundStudy: false } });
     }
@@ -65,7 +65,7 @@ async function lookupStudyTask(req, res) {
       // 未完成：isCostEstimate 为 false 即未完成
       isUnfinished = done.hasOwnProperty('isCostEstimate') ? !Boolean(done.isCostEstimate) : null;
       // 🔥 获取当前的 sdtmAnalysisStatus 以便前端精确路由
-      currentStatus = doc.ProjectCostEstimateDetails?.sdtmAnalysisStatus || null;
+      currentStatus = doc.CostEstimateDetails?.sdtmAnalysisStatus || null;
     } else if (task.key === 'sasAnalysis') {
       isUnfinished = done.hasOwnProperty('isSasAnalysis') ? !Boolean(done.isSasAnalysis) : null;
       // 对于SAS分析，我们暂时不需要状态机，保持原有逻辑

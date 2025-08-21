@@ -12,6 +12,10 @@ const API_BASE_URL = 'https://localhost:4000';
 let uploadedProtocol = null;
 let currentWizardStep = 1;
 let lastParsedCommand = null;
+// Upload entry context: 'default' | 'from_chat'
+if (typeof window !== 'undefined' && !window.uploadContext) {
+  window.uploadContext = 'default';
+}
 
 // Excel状态缓存系统 - 用于Back导航时恢复Excel内容
 let excelStateCache = {
@@ -150,6 +154,9 @@ function showStep(step) {
   
   if (step === 1) {
     // Step 1 (AI Assistant): 隐藏所有导航按钮，强制通过聊天交互
+    if (navContainer) navContainer.style.display = 'none';
+  } else if (step === 2 && typeof window !== 'undefined' && window.uploadContext === 'from_chat') {
+    // Step 2 in chat-driven flow: hide global nav (Back/Next) completely
     if (navContainer) navContainer.style.display = 'none';
   } else {
     // 其他步骤：显示导航按钮

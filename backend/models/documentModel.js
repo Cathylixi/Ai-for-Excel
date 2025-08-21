@@ -28,7 +28,7 @@ const DocumentSchema = new mongoose.Schema({
     isSasAnalysis: { type: Boolean, default: false }
   },
   
-  // 🔁 上传解析产物统一归档到 uploadExtraction（与 projectDone、ProjectCostEstimateDetails 同级）
+  // 🔁 上传解析产物统一归档到 uploadExtraction（与 projectDone、CostEstimateDetails 同级）
   uploadExtraction: {
     // 传统的完整文本存储（保留兼容性）
     extractedText: { type: String },
@@ -45,25 +45,38 @@ const DocumentSchema = new mongoose.Schema({
       number: { type: String } // Section number (1, 1.1, 1.2.1, etc.)
     }],
     
-    // 表格集合
+    // 表格集合 - 支持Word(HTML)和PDF(数组)混合格式
     tables: [{
-      htmlContent: { type: String, required: true }, // 完整的table HTML
-      extractedAt: { type: Date, default: Date.now },
-      tableIndex: { type: Number, required: true } // 在文档中的表格序号
+      // Word文档专用字段
+      htmlContent: { type: String, required: false }, // Word表格的完整HTML
+      
+      // PDF文档专用字段  
+      data: { type: [[String]], required: false }, // PDF表格的二维数组数据
+      page: { type: Number }, // PDF表格所在页码
+      rows: { type: Number }, // PDF表格行数
+      columns: { type: Number }, // PDF表格列数
+      
+      // 通用字段
+      source: { type: String, enum: ['word', 'pdf'], required: true }, // 数据来源标识
+      tableIndex: { type: Number, required: true }, // 在文档中的表格序号
+      extractedAt: { type: Date, default: Date.now }
     }],
     
     // 评估时间表
     assessmentSchedule: {
-      htmlContent: { type: String }, // 识别出的评估时间表HTML
+      htmlContent: { type: String }, // For Word HTML tables
+      data: { type: [[String]] },    // For PDF array tables
       tableIndex: { type: Number }, // 该表格在tables数组中的索引
-      identifiedBy: { type: String, enum: ['ai', 'keyword', 'manual', 'keyword-backup'], default: 'ai' }, // 识别方法
+      identifiedBy: { type: String, enum: ['ai', 'ai_pdf', 'keyword', 'manual', 'keyword-backup'], default: 'ai' }, // 识别方法
+      source: { type: String, enum: ['word', 'pdf'] }, // Data source of the identified schedule
+      page: { type: Number }, // Page number if from PDF
       confidence: { type: Number, min: 0, max: 1 }, // AI识别置信度
       extractedAt: { type: Date, default: Date.now }
     }
   },
   
-  // 🔥 成本估算与SDTM相关业务：统一归档到 ProjectCostEstimateDetails
-  ProjectCostEstimateDetails: {
+  // 🔥 成本估算与SDTM相关业务：统一归档到 CostEstimateDetails
+  CostEstimateDetails: {
 
     // 🔥 项目选择结果 (Step 3 - Project Selection)
     projectSelection: {
@@ -79,12 +92,12 @@ const DocumentSchema = new mongoose.Schema({
     // SDTM分析结果字段 (AI原始分析)
     sdtmAnalysis: {
       success: { type: Boolean, default: false },
-      message: { type: String },
       procedures: [{ type: String }],
-      mappings: [{
-        procedure: { type: String, required: true },
-        sdtm_domains: [{ type: String }]
-      }],
+      mappings: {
+        type: Map,
+        of: { type: String }, // procedure名称 -> SDTM域字符串的映射（逗号分隔）
+        default: new Map()
+      },
       summary: {
         total_procedures: { type: Number, default: 0 },
         total_sdtm_domains: { type: Number, default: 0 },
@@ -106,10 +119,7 @@ const DocumentSchema = new mongoose.Schema({
       success: { type: Boolean, default: false }, // 🔥 新增：用户确认成功标志
       message: { type: String },
       procedures: [{ type: String }],
-      mappings: [{
-        procedure: { type: String, required: true },
-        sdtm_domains: [{ type: String }]
-      }],
+      mappings: { type: Map, of: { type: String }, default: new Map() },
       summary: {
         total_procedures: { type: Number },
         total_sdtm_domains: { type: Number },
@@ -133,8 +143,8 @@ const DocumentSchema = new mongoose.Schema({
       default: null
     },
 
-    // 成本估算快照
-    costEstimate: {
+    // SDTM表格输入数据快照
+    sdtmTableInput: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
     }
