@@ -1146,10 +1146,8 @@ async function confirmSDTMAnalysis() {
       }
     }
 
-    // 导航到下一步
-    setTimeout(() => {
-      moduleConfig.showStep(6);
-    }, 2000);
+    // 🔥 修改：不自动跳转，让用户通过底部蓝色Next按钮手动跳转
+    console.log('✅ SDTM分析已确认，用户可以点击Next按钮继续到Step 6');
 
   } catch (error) {
     console.error('❌ 确认SDTM分析时出错:', error);
@@ -1852,6 +1850,7 @@ if (typeof window !== 'undefined') {
   window.CostEstimateModule = {
     init: initCostEstimateModule,
     reset: resetCostEstimateModule,
+    restoreApplicationState: loadAndDisplaySDTMResults, // 🔥 添加状态恢复函数
     // 导出主要函数供主控制器调用
     initProjectSelectionLogic,
     saveProjectSelectionDetails,

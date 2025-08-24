@@ -378,6 +378,8 @@
 
 .domains-overview {
     margin-bottom: 10px;
+    word-wrap: break-word;
+    overflow-wrap: break-word;
 }
 
 .domains-overview .stat-label {
@@ -389,6 +391,10 @@
 
 .domains-list-overview {
     margin-top: 5px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    max-width: 100%;
 }
 
 .domain-list {
@@ -417,6 +423,9 @@
     border-radius: 12px;
     font-size: 12px;
     font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin: 2px 0;
 }
 
 .sdtm-status {
@@ -627,6 +636,8 @@
     color: #28a745;
 }
 
+
+
 /* Flat mappings list (newer design) */
 .flat-mappings-list {
     display: flex;
@@ -652,6 +663,8 @@
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
+    align-items: flex-start;
+    max-width: 100%;
 }
 
 /* OLD MAPPINGS STYLES - Keep for backward compatibility */

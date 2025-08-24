@@ -116,7 +116,8 @@ async function analyzeSDTMMapping(procedures) {
 Procedure List:
 ${procedures.map((p, i) => `${i + 1}. ${p}`).join('\n')}
 
-Please analyze based on CDISC SDTM standards. Common SDTM domains include:
+Please analyze based on CDISC SDTM standards version 3.4. Common SDTM domains include:
+
 - AE (Adverse Events)
 - CM (Concomitant Medications)
 - DM (Demographics)
@@ -138,24 +139,25 @@ Please analyze based on CDISC SDTM standards. Common SDTM domains include:
 🔥 MAPPING AND COMPLEXITY RULES:
 1. Each procedure should be a standard medical procedure or assessment activity
 2. Based on the medical meaning of the procedure, map to the most appropriate SDTM domain
-3. Assess complexity level for each procedure:
-   - High Complexity: Complex laboratory tests, multi-parameter biomarkers, complex questionnaire assessments, special medical examinations, etc.
-   - Medium Complexity: Standard physical examinations, basic vital signs, routine laboratory tests, standard drug administration, etc.
-4. Domain-level mutual exclusivity principle for complexity statistics (VERY IMPORTANT):
-   - Please deduplicate by "domain" in the summary when counting complexity sets.
-   - If the same domain is marked as both High and Medium across different procedures, assign that domain to the High set (High overrides Medium).
-   - The final High and Medium sets must be mutually exclusive at the domain level, and their union size must equal the length of unique_domains.
+3. Assess complexity level for each procedure: 
+   - High Complexity: Complex laboratory tests, multi-parameter biomarkers, complex questionnaire assessments, special medical examinations, etc. 
+   - Medium Complexity: Standard physical examinations, basic vital signs, routine laboratory tests, standard drug administration, etc. 
+   - If SV is counted under Medium Complexity, please move it under High Complexity instead, if SV is not counted, please add to High Complexity directly
+4. Domain-level mutual exclusivity principle for complexity statistics (VERY IMPORTANT): 
+   - Please deduplicate by "domain" in the summary when counting complexity sets. 
+   - If the same domain is marked as both High and Medium across different procedures, assign that domain to the High set (High overrides Medium). 
+   - The final High and Medium sets must be mutually exclusive at the domain level. 
    - Also, total_sdtm_domains must equal the length of unique_domains and equal the size of the union of High and Medium sets.
 
-Please return JSON format with simplified mappings object:
+Please return JSON format, ensuring the mappings array contains exactly ${procedures.length} entries (one per procedure):
 {
-  "mappings": {
-    "exact matching procedure name": ["corresponding domains"],
-    "another procedure name": ["domain1", "domain2"]
-  },
-  "complexity": {
-    "procedure name": "High" or "Medium"
-  },
+  "mappings": [
+    {
+      "procedure": "exact matching procedure name",
+      "sdtm_domains": ["corresponding domains"],
+      "complexity": "High" or "Medium"
+    }
+  ],
   "summary": {
     "total_procedures": ${procedures.length},
     "total_sdtm_domains": "length of unique_domains array (deduplicated unique domain count)",
@@ -165,7 +167,7 @@ Please return JSON format with simplified mappings object:
       "domains": ["list of high complexity domains (deduplicated)"]
     },
     "mediumComplexitySdtm": {
-      "count": "number of medium complexity domains (mutually exclusive, deduplicated by domain, no overlap with High)", 
+      "count": "number of medium complexity domains (mutually exclusive, deduplicated by domain, no overlap with High)",
       "domains": ["list of medium complexity domains (deduplicated)"]
     }
   }
@@ -221,19 +223,19 @@ Please return JSON format with simplified mappings object:
     // 统一后处理：基于域去重并确保 High 覆盖 Medium、互斥且一致
     const domainToComplexity = new Map();
     
-    // 处理新的简化mappings格式: { "procedure": ["domain1", "domain2"] }
-    if (analysis.mappings && typeof analysis.mappings === 'object') {
-      Object.entries(analysis.mappings).forEach(([procedure, domains]) => {
-        // 获取procedure的复杂度
-        const c = analysis.complexity && analysis.complexity[procedure] === 'High' ? 'High' : 'Medium';
-        const domainsArray = Array.isArray(domains) ? domains : [];
+    // 处理新的数组格式: [{ "procedure": "name", "sdtm_domains": ["domain1"], "complexity": "High" }]
+    if (analysis.mappings && Array.isArray(analysis.mappings)) {
+      analysis.mappings.forEach(item => {
+        const procedure = item.procedure;
+        const domains = item.sdtm_domains || [];
+        const complexity = item.complexity || 'Medium';
         
-        domainsArray.forEach(d => {
+        domains.forEach(d => {
           const dom = (d || '').trim();
           if (!dom) return;
           const existing = domainToComplexity.get(dom);
-          if (!existing || (existing === 'Medium' && c === 'High')) {
-            domainToComplexity.set(dom, c);
+          if (!existing || (existing === 'Medium' && complexity === 'High')) {
+            domainToComplexity.set(dom, complexity);
           }
         });
       });
@@ -242,24 +244,40 @@ Please return JSON format with simplified mappings object:
     const highDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'High');
     const mediumDomains = uniqueDomains.filter(d => domainToComplexity.get(d) === 'Medium');
 
-    analysis.summary.unique_domains = uniqueDomains;
-    analysis.summary.total_sdtm_domains = uniqueDomains.length;
+    // 🔥 手动添加试验域到Medium Complexity（这些域不会从procedures中产生）
+    const trialDomains = ['TA', 'TE', 'TI', 'TV', 'TS', 'SE'];
+    trialDomains.forEach(domain => {
+      const existing = domainToComplexity.get(domain);
+      if (!existing) {
+        domainToComplexity.set(domain, 'Medium');
+      }
+    });
+    
+    // 重新计算域列表（包含试验域）
+    const finalUniqueDomains = Array.from(domainToComplexity.keys());
+    const finalHighDomains = finalUniqueDomains.filter(d => domainToComplexity.get(d) === 'High');
+    const finalMediumDomains = finalUniqueDomains.filter(d => domainToComplexity.get(d) === 'Medium');
+
+    analysis.summary.unique_domains = finalUniqueDomains;
+    analysis.summary.total_sdtm_domains = finalUniqueDomains.length;
     analysis.summary.highComplexitySdtm = {
-      count: highDomains.length,
-      domains: highDomains
+      count: finalHighDomains.length,
+      domains: finalHighDomains
     };
     analysis.summary.mediumComplexitySdtm = {
-      count: mediumDomains.length,
-      domains: mediumDomains
+      count: finalMediumDomains.length,
+      domains: finalMediumDomains
     };
 
-    console.log(`✅ SDTM分析完成 - 发现 ${analysis.summary.unique_domains.length} 个不同的SDTM域`);
+    console.log(`✅ SDTM分析完成 - 发现 ${analysis.summary.unique_domains.length} 个不同的SDTM域（包含${trialDomains.length}个试验域）`);
     
     // 转换mappings为Map格式以便MongoDB存储 - 简化为字符串格式
     const mappingsMap = new Map();
-    if (analysis.mappings && typeof analysis.mappings === 'object') {
-      Object.entries(analysis.mappings).forEach(([procedure, domains]) => {
-        if (Array.isArray(domains)) {
+    if (analysis.mappings && Array.isArray(analysis.mappings)) {
+      analysis.mappings.forEach(item => {
+        const procedure = item.procedure;
+        const domains = item.sdtm_domains || [];
+        if (procedure && Array.isArray(domains)) {
           // 将数组转换为逗号分隔的字符串，简洁明了
           const domainsString = domains.join(', ');
           mappingsMap.set(procedure, domainsString);
