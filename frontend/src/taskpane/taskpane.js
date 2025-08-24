@@ -78,6 +78,7 @@ async function initializeModules() {
       await window.MainPageModule.init({
         API_BASE_URL,
         showStep,
+        showPage,
         showStatusMessage,
         delayedNavigation,
 
@@ -148,6 +149,9 @@ function showStep(step) {
     p.style.display = (s === step) ? 'block' : 'none';
   });
   
+  // 隐藏独立页面
+  hideStandalonePages();
+  
   const backBtn = document.getElementById('wizard-back-btn');
   const nextBtn = document.getElementById('wizard-next-btn');
   const navContainer = document.querySelector('.wizard-nav');
@@ -172,6 +176,60 @@ function showStep(step) {
   // 通知模块步骤变化
   notifyModuleStepChange(step);
 }
+
+// ===== 独立页面控制 =====
+function showPage(pageName) {
+  // 隐藏所有向导步骤
+  const pages = document.querySelectorAll('.wizard-page');
+  pages.forEach(p => p.style.display = 'none');
+  
+  // 隐藏导航按钮
+  const navContainer = document.querySelector('.wizard-nav');
+  if (navContainer) navContainer.style.display = 'none';
+  
+  // 显示指定的独立页面
+  if (pageName === 'otherdocuments') {
+    showOtherDocumentsPage();
+  } else if (pageName === 'sasanalysis') {
+    showSasAnalysisPage();
+  }
+}
+
+function hideStandalonePages() {
+  // 隐藏所有独立页面
+  const otherDocsPage = document.getElementById('otherdocuments-container');
+  if (otherDocsPage) otherDocsPage.style.display = 'none';
+  const sasPage = document.getElementById('sasanalysis-container');
+  if (sasPage) sasPage.style.display = 'none';
+}
+
+function showOtherDocumentsPage() {
+  const container = document.getElementById('otherdocuments-container');
+  if (!container) return;
+  
+  // 显示页面
+  container.style.display = 'block';
+  
+  // 让 otherdocuments.js 自己处理 HTML 生成和事件绑定
+  if (typeof window.initOtherDocumentsPage === 'function') {
+    window.initOtherDocumentsPage({
+      container: container,
+      API_BASE_URL,
+      studyId: window.currentDocumentId
+    });
+  }
+}
+
+function showSasAnalysisPage() {
+  const container = document.getElementById('sasanalysis-container');
+  if (!container) return;
+  container.style.display = 'block';
+  if (typeof window.initSasAnalysisPage === 'function') {
+    window.initSasAnalysisPage({ container });
+  }
+}
+
+
 
 // ===== Next按钮处理 =====
 async function handleNext() {
@@ -561,6 +619,7 @@ async function attemptStateRecovery() {
 window.TaskPaneController = {
   // 核心控制函数
   showStep,
+  showPage,
   showStatusMessage,
   delayedNavigation,
 
@@ -582,3 +641,6 @@ window.TaskPaneController = {
   // 全局常量
   API_BASE_URL
 };
+
+// 暴露showPage到全局
+window.showPage = showPage;

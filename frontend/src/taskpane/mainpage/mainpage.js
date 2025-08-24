@@ -77,6 +77,8 @@ function resetAIChatInterface() {
   // 重置相关状态变量
   pendingConfirmation = null;
   lastParsedCommand = null;
+  // 新增：聊天驱动的流程状态机
+  try { window.chatFlowState = null; window.currentTaskContext = {}; } catch (_) {}
   
   console.log('✅ AI聊天界面已重置到初始状态');
 }
@@ -109,6 +111,24 @@ document.addEventListener('click', (e) => {
     } else if (typeof window.showStep === 'function') {
       window.showStep(2);
     }
+  } else if (actionId === 'navigate_to_otherdocs') {
+    // Navigate to Other Documents page
+    // 检查是否是新任务流程
+    const isNewTaskFlow = (window.uploadContext === 'from_chat_otherdocs_new_task');
+    if (isNewTaskFlow) {
+      // 设置正确的状态，让 otherdocuments.js 知道这是新任务流程
+      try { 
+        window.chatFlowState = 'waiting_for_otherdocs_upload_new_task';
+      } catch (_) {}
+    }
+    
+    if (moduleConfig && typeof moduleConfig.showPage === 'function') {
+      moduleConfig.showPage('otherdocuments');
+    } else if (typeof window.showPage === 'function') {
+      window.showPage('otherdocuments');
+    } else {
+      addChatMessage('Opening Other Documents page failed. Please open it manually.', 'ai');
+    }
   }
 });
 
@@ -121,6 +141,100 @@ async function handleChatSend() {
   addChatMessage(userMessage, 'user');
   chatInput.value = '';
   document.getElementById('chat-send-btn').disabled = true;
+
+
+
+  // 🔥 新增：处理"选择另一个任务"的状态
+  if (typeof window !== 'undefined' && window.chatFlowState === 'awaiting_another_task_selection') {
+    try {
+      // 将用户的回复发送给AI解析任务类型
+      const parsed = await callAssistantParseCommand(userMessage);
+      
+      if (parsed && parsed.matchedTask) {
+        // AI识别出了任务，直接跳到询问是否上传其他文档
+        const taskName = parsed.matchedTask.name;
+        const taskKey = parsed.matchedTask.key;
+        
+        // 🔥 修正：直接设置新任务信息并跳到文档上传询问
+        window.pendingNewTask = {
+          taskName: taskName,
+          taskKey: taskKey,
+          studyIdentifier: window.currentStudyContext.studyIdentifier,
+          studyNumber: window.currentStudyContext.studyNumber
+        };
+        
+        // 直接显示文档并询问是否上传
+        await showExistingDocsAndAskUpload(taskName, window.currentStudyContext.studyIdentifier);
+        
+      } else {
+        // AI没有识别出任务
+        addChatMessage("I couldn't understand which task you want to do. Please try again with one of the available tasks.", 'ai');
+      }
+    } catch (e) {
+      addChatMessage("Sorry, I couldn't process your request. Please try again.", 'ai');
+    }
+    
+    document.getElementById('chat-send-btn').disabled = false;
+    return;
+  }
+
+  // 🔥 注意：原来的"确认另一个任务"状态已移除，因为现在直接跳到文档上传询问
+
+  // 🔥 新增：处理"是否上传其他文档"的状态（针对新任务）
+  if (typeof window !== 'undefined' && window.chatFlowState === 'awaiting_other_docs_for_new_task') {
+    const intent = parseYesNoIntent(userMessage);
+    
+    if (intent === 'yes') {
+      // 🔥 使用现有的按钮机制跳转到 Other Documents page
+      try { window.uploadContext = 'from_chat_otherdocs_new_task'; } catch (_) {}
+      addActionBubble('Click to upload other documents', 'navigate_to_otherdocs');
+      
+      // 设置状态，等待上传完成后回来
+      window.chatFlowState = 'waiting_for_otherdocs_upload_new_task';
+      
+    } else if (intent === 'no') {
+      // 用户不想上传，直接开始新任务
+      const taskName = window.pendingNewTask.taskName;
+      addChatMessage(`Okay. We can start ${taskName} now.`, 'ai');
+      
+      // 2 秒后自动启动新任务（显示打字指示器更自然）
+      showTypingIndicator();
+      setTimeout(async () => {
+        hideTypingIndicator();
+        await startNewTask();
+      }, 2000);
+      
+    } else {
+      addChatMessage("Please answer 'yes' or 'no'.", 'ai');
+    }
+    
+    document.getElementById('chat-send-btn').disabled = false;
+    return;
+  }
+
+  // 🔥 新增：处理“无需上传，是否直接开始任务”状态
+  if (typeof window !== 'undefined' && window.chatFlowState === 'awaiting_start_without_upload') {
+    const intent = parseYesNoIntent(userMessage);
+    window.chatFlowState = null;
+    if (intent === 'yes') {
+      // 用户直接开始任务
+      showTypingIndicator();
+      setTimeout(async () => {
+        hideTypingIndicator();
+        await startNewTask();
+      }, 1000);
+    } else if (intent === 'no') {
+      // 提供上传入口（用于替换已有文件）
+      try { window.uploadContext = 'from_chat_otherdocs_new_task'; } catch (_) {}
+      addActionBubble('Click to upload other documents', 'navigate_to_otherdocs');
+      // 等待上传完成
+      window.chatFlowState = 'waiting_for_otherdocs_upload_new_task';
+    } else {
+      addChatMessage("Please answer 'yes' or 'no'.", 'ai');
+    }
+    document.getElementById('chat-send-btn').disabled = false;
+    return;
+  }
 
   // 检查是否在等待确认状态
   if (pendingConfirmation) {
@@ -178,6 +292,8 @@ function askForConfirmation(studyIdentifier, taskName, taskKey) {
     taskName,
     taskKey
   };
+  // 记录当前任务上下文，用于后续“是否上传其他文档”提问
+  try { window.currentTaskContext = { taskKey, taskName, studyIdentifier }; } catch (_) {}
 }
 
 // 处理确认回复
@@ -319,17 +435,36 @@ async function handleLookupResult(data) {
 
   // 找到study了
   if (data.isUnfinished === null) {
-    // task从未开始 → 跳转到对应task的开始页面
-    if (data.taskKey === 'costEstimate') {
-      addChatMessage(`Starting Cost Estimate for study ${data.studyNumber}...`, 'ai');
+    // task从未开始 → 先标记为开始状态，然后跳转到对应task的开始页面
+    try {
+      // 🔥 新增：调用API标记任务开始（设置为 false）
+      const startResponse = await fetch(`${moduleConfig.API_BASE_URL}/api/documents/${data.documentId}/mark-started`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ taskKey: data.taskKey })
+      });
+      
+      if (!startResponse.ok) {
+        console.warn('Failed to mark task as started, but continuing...');
+      }
+      
+      // 🔥 统一逻辑：先查询并显示现有文档，然后询问是否上传
       safeSetCurrentDocumentId(data.documentId);
       await safeSaveDocumentIdToSettings(data.documentId);
-      await safeDelayedNavigation(3); // 跳转到Step 3 Project Selection
-    } else if (data.taskKey === 'sasAnalysis') {
-      addChatMessage(`Starting SAS Analysis for study ${data.studyNumber}...`, 'ai');
-      safeSetCurrentDocumentId(data.documentId);
-      await safeSaveDocumentIdToSettings(data.documentId);
-      await safeDelayedNavigation(3); // 跳转到对应的SAS页面
+      
+      // 设置pending任务信息，供后续使用
+      window.pendingNewTask = {
+        taskName: data.taskName,
+        taskKey: data.taskKey,
+        studyIdentifier: data.studyNumber || data.studyIdentifier,
+        studyNumber: data.studyNumber,
+        documentId: data.documentId
+      };
+      
+      await showExistingDocsAndAskUpload(data.taskName, data.studyNumber || data.studyIdentifier);
+    } catch (error) {
+      console.error('Error marking task as started:', error);
+      addChatMessage('Failed to start the task. Please try again.', 'ai');
     }
     return;
   }
@@ -340,74 +475,289 @@ async function handleLookupResult(data) {
     console.log('  - currentStatus:', data.currentStatus);
     console.log('  - documentId:', data.documentId);
     
-    // task进行中 → 根据currentStatus精确路由到正确的步骤
-    addChatMessage(`I found an unfinished '${data.taskName}' for study '${data.studyNumber}'. Continuing from where you left off...`, 'ai');
+    // 🔥 统一逻辑：任务进行中时也先查询文档并询问是否上传
+    addChatMessage(`I found an unfinished '${data.taskName}' for study '${data.studyNumber}'.`, 'ai');
     safeSetCurrentDocumentId(data.documentId);
     await safeSaveDocumentIdToSettings(data.documentId);
     
-    // 🔥 实现精确路由逻辑
-    const targetStep = getTargetStepByStatus(data.currentStatus, data.taskKey);
-    console.log(`📍 [DEBUG] Status: '${data.currentStatus}' → Routing to Step ${targetStep}`);
+    // 设置pending任务信息，但包含恢复信息
+    window.pendingNewTask = {
+      taskName: data.taskName,
+      taskKey: data.taskKey,
+      studyIdentifier: data.studyNumber || data.studyIdentifier,
+      studyNumber: data.studyNumber,
+      documentId: data.documentId,
+      isResuming: true,  // 标记这是恢复任务
+      currentStatus: data.currentStatus  // 保存当前状态用于恢复
+    };
     
-    // 根据目标步骤进行特殊处理
-    if (targetStep === 4 && data.taskKey === 'costEstimate') {
-      // Step 4: 自动触发SDTM分析
-      await safeDelayedNavigation(targetStep);
-      setTimeout(async () => {
-        try {
-          if (window.triggerSDTMAnalysis && typeof window.triggerSDTMAnalysis === 'function') {
-            console.log('🔄 自动触发SDTM分析（从状态恢复）...');
-            await window.triggerSDTMAnalysis();
-          } else {
-            console.warn('⚠️ triggerSDTMAnalysis函数不可用');
-          }
-        } catch (error) {
-          console.error('❌ 自动触发SDTM分析失败:', error);
-        }
-      }, 1000);
-    } else if (targetStep === 5 && data.taskKey === 'costEstimate') {
-      // Step 5: 自动加载并显示SDTM分析结果
-      await safeDelayedNavigation(targetStep);
-      setTimeout(async () => {
-        try {
-          if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
-            console.log('🔄 自动加载SDTM分析结果（从状态恢复）...');
-            await window.CostEstimateModule.loadAndDisplaySDTMResults();
-          } else {
-            console.warn('⚠️ loadAndDisplaySDTMResults函数不可用');
-          }
-        } catch (error) {
-          console.error('❌ 自动加载SDTM结果失败:', error);
-        }
-      }, 1000);
-    } else if (targetStep === 6 && data.taskKey === 'costEstimate') {
-      // Step 6: 完成页面，恢复完整的Excel表格
-      await safeDelayedNavigation(targetStep);
-      setTimeout(async () => {
-        try {
-          if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
-            console.log('🔄 恢复完成项目的Excel表格（Step 6）...');
-            await window.CostEstimateModule.loadAndDisplaySDTMResults();
-          } else {
-            console.warn('⚠️ loadAndDisplaySDTMResults函数不可用');
-          }
-        } catch (error) {
-          console.error('❌ 恢复Step 6 Excel表格失败:', error);
-        }
-      }, 1000);
-    } else {
-      // 其他情况，直接跳转
-      await safeDelayedNavigation(targetStep);
-    }
+    await showExistingDocsAndAskUpload(data.taskName, data.studyNumber || data.studyIdentifier);
     return;
   }
 
   if (data.isUnfinished === false) {
-    // task已完成 → 暂不考虑，给出提示
-    addChatMessage(`The '${data.taskName}' for study '${data.studyNumber}' is already completed.`, 'ai');
+    // 🔥 新逻辑：显示现有文档 + 提供其他任务选择
+    await showCompletedTaskAndOfferOthers(data);
+    return;
   } else {
     // 状态不明确的情况
     addChatMessage("We could not check the status for this study.", 'ai');
+  }
+}
+
+// 🔥 新增：显示已完成任务并提供其他选择
+async function showCompletedTaskAndOfferOthers(data) {
+  try {
+    // 获取该study的所有现有文档与槽位状态
+    const docInfo = await getStudyDocuments(data.studyNumber || data.studyIdentifier);
+    const studyDocs = Array.isArray(docInfo?.documents) ? docInfo.documents : [];
+    const hasProtocol = !!docInfo?.hasProtocol;
+    const hasCrf = !!docInfo?.hasCrf;
+    const hasSap = !!docInfo?.hasSap;
+    
+    // 构建消息
+    let message = `${data.taskName} for study ${data.studyNumber} analysis is finished.\n\n`;
+    
+    // 获取可用任务列表
+    const availableTasks = getAvailableTasksForStudy(data.taskName);
+    if (availableTasks.length > 0) {
+      message += `Do you want to start another task for this study? Available tasks are:\n`;
+      availableTasks.forEach(task => {
+        message += `• ${task}\n`;
+      });
+    } else {
+      message += 'All tasks for this study have been completed.';
+    }
+    
+    addChatMessage(message, 'ai');
+    
+    // 🔥 设置状态机等待用户选择新任务
+    if (availableTasks.length > 0) {
+      window.chatFlowState = 'awaiting_another_task_selection';
+      window.currentStudyContext = {
+        studyIdentifier: data.studyNumber || data.studyIdentifier,
+        studyNumber: data.studyNumber,
+        completedTask: data.taskName,
+        availableTasks: availableTasks,
+        existingDocuments: { hasProtocol, hasCrf, hasSap, filesSummary: docInfo?.filesSummary || [] }
+      };
+    }
+    
+  } catch (error) {
+    console.error('❌ Error showing completed task info:', error);
+    // 回退到简单消息
+    addChatMessage(`${data.taskName} for study ${data.studyNumber} is already completed.`, 'ai');
+  }
+}
+
+// 🔥 新增：获取Study的所有文档与槽位状态
+async function getStudyDocuments(studyIdentifier) {
+  try {
+    const response = await fetch(`${moduleConfig.API_BASE_URL}/api/studies/${encodeURIComponent(studyIdentifier)}/documents`);
+    if (!response.ok) {
+      throw new Error(`Failed to get study documents: ${response.statusText}`);
+    }
+    const data = await response.json();
+    return data.success ? (data.data || {}) : {};
+  } catch (error) {
+    console.error('❌ Error fetching study documents:', error);
+    return {};
+  }
+}
+
+// 🔥 新增：获取可用任务列表
+function getAvailableTasksForStudy(completedTaskName) {
+  const allTasks = ['Cost Estimate', 'SAS Analysis'];
+  return allTasks.filter(task => task !== completedTaskName);
+}
+
+// 🔥 统一函数：显示现有文档(不包括Protocol)并询问上传
+async function showExistingDocsAndAskUpload(taskName, studyIdentifier) {
+  try {
+    if (!studyIdentifier) {
+      console.error('❌ No study identifier available');
+      return;
+    }
+    
+    // 获取最新的文档与槽位状态
+    const docInfo = await getStudyDocuments(studyIdentifier);
+    let message = "";
+    const hasCrf = !!docInfo?.hasCrf;
+    const hasSap = !!docInfo?.hasSap;
+    const fs = Array.isArray(docInfo?.filesSummary) ? docInfo.filesSummary : [];
+    
+    // 只显示CRF和SAP，不显示Protocol
+    if (hasCrf || hasSap) {
+      message += "Here are the documents we have for this study:\n";
+      const c = fs.find(x => x.slot === 'CRF');
+      const s = fs.find(x => x.slot === 'SAP');
+      if (c) message += `• CRF - ${(c.originalName||'')}${c.size?` (${c.size})`:''}\n`;
+      if (s) message += `• SAP - ${(s.originalName||'')}${s.size?` (${s.size})`:''}\n`;
+      message += "\n";
+    } else {
+      message += "No additional documents found for this study.\n\n";
+    }
+    // 如果CRF和SAP都已上传，直接询问是否开始任务
+    if (hasCrf && hasSap) {
+      message += `All required documents are uploaded. Do you want to start ${taskName} now?`;
+      addChatMessage(message, 'ai');
+      window.chatFlowState = 'awaiting_start_without_upload';
+    } else {
+      // 否则维持现有逻辑：询问是否上传其他文档
+      message += `Upload other documents to help to do ${taskName}?`;
+      addChatMessage(message, 'ai');
+      window.chatFlowState = 'awaiting_other_docs_for_new_task';
+    }
+    
+  } catch (error) {
+    console.error('❌ Error showing existing docs and asking upload:', error);
+    // 回退到简单询问
+    addChatMessage(`Upload other documents to help to do ${taskName}?`, 'ai');
+    window.chatFlowState = 'awaiting_other_docs_for_new_task';
+  }
+}
+
+// 🔥 新增：启动新任务的核心函数
+async function startNewTask() {
+  if (!window.pendingNewTask) {
+    console.error('No pending new task to start');
+    return;
+  }
+  
+  const { taskKey, studyIdentifier, studyNumber, isResuming, currentStatus } = window.pendingNewTask;
+  
+  try {
+    // 清理状态
+    window.chatFlowState = null;
+    const pendingTask = window.pendingNewTask; // 保存一份
+    window.pendingNewTask = null;
+    window.currentStudyContext = null;
+    
+    if (isResuming) {
+      // 这是恢复任务
+      if (taskKey === 'sasAnalysis') {
+        // SAS Analysis 恢复：始终跳转独立页面，而不是 Step 3
+        addChatMessage(`Continuing SAS Analysis from where you left off...`, 'ai');
+        setTimeout(() => {
+          if (moduleConfig && typeof moduleConfig.showPage === 'function') {
+            moduleConfig.showPage('sasanalysis');
+          } else if (typeof window.showPage === 'function') {
+            window.showPage('sasanalysis');
+          }
+        }, 2000);
+        return;
+      }
+
+      // Cost Estimate 恢复：根据状态精确路由
+      addChatMessage(`Continuing from where you left off...`, 'ai');
+      const targetStep = getTargetStepByStatus(currentStatus, taskKey);
+      console.log(`📍 [DEBUG] Resuming - Status: '${currentStatus}' → Routing to Step ${targetStep}`);
+
+      // 根据目标步骤进行特殊处理
+      if (targetStep === 4 && taskKey === 'costEstimate') {
+        // Step 4: 自动触发SDTM分析
+        await safeDelayedNavigation(targetStep);
+        setTimeout(async () => {
+          try {
+            if (window.triggerSDTMAnalysis && typeof window.triggerSDTMAnalysis === 'function') {
+              console.log('🔄 自动触发SDTM分析（从状态恢复）...');
+              await window.triggerSDTMAnalysis();
+            } else {
+              console.warn('⚠️ triggerSDTMAnalysis函数不可用');
+            }
+          } catch (error) {
+            console.error('❌ 自动触发SDTM分析失败:', error);
+          }
+        }, 1000);
+      } else if (targetStep === 5 && taskKey === 'costEstimate') {
+        // Step 5: 自动加载并显示SDTM分析结果
+        await safeDelayedNavigation(targetStep);
+        setTimeout(async () => {
+          try {
+            if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
+              console.log('🔄 自动加载SDTM分析结果（从状态恢复）...');
+              await window.CostEstimateModule.loadAndDisplaySDTMResults();
+            } else {
+              console.warn('⚠️ loadAndDisplaySDTMResults函数不可用');
+            }
+          } catch (error) {
+            console.error('❌ 自动加载SDTM结果失败:', error);
+          }
+        }, 1000);
+      } else if (targetStep === 6 && taskKey === 'costEstimate') {
+        // Step 6: 完成页面，恢复完整的Excel表格
+        await safeDelayedNavigation(targetStep);
+        setTimeout(async () => {
+          try {
+            if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
+              console.log('🔄 恢复完成项目的Excel表格（Step 6）...');
+              await window.CostEstimateModule.loadAndDisplaySDTMResults();
+            } else {
+              console.warn('⚠️ loadAndDisplaySDTMResults函数不可用');
+            }
+          } catch (error) {
+            console.error('❌ 恢复Step 6 Excel表格失败:', error);
+          }
+        }, 1000);
+      } else {
+        // 其他情况，直接跳转
+        await safeDelayedNavigation(targetStep);
+      }
+    } else {
+      // 这是新任务，直接开始，不要重新lookup（避免循环）
+      if (taskKey === 'costEstimate') {
+        addChatMessage(`Starting Cost Estimate...`, 'ai');
+        await safeDelayedNavigation(3); // 跳转到Step 3 Project Selection
+      } else if (taskKey === 'sasAnalysis') {
+        addChatMessage(`Starting SAS Analysis...`, 'ai');
+        // 🔥 跳转到独立的SAS Analysis页面，不是Step 3
+        setTimeout(() => {
+          if (moduleConfig && typeof moduleConfig.showPage === 'function') {
+            moduleConfig.showPage('sasanalysis');
+          } else if (typeof window.showPage === 'function') {
+            window.showPage('sasanalysis');
+          }
+        }, 2000);
+      }
+    }
+    
+  } catch (error) {
+    console.error('Failed to start new task:', error);
+    addChatMessage('Sorry, failed to start the new task. Please try again.', 'ai');
+  }
+}
+
+// 🔥 处理 other documents 上传完成事件
+async function handleOtherDocsUploadComplete(event) {
+  console.log('📨 Received otherdocs upload complete event:', event.detail);
+  
+  if (!event.detail.fromChatFlow || !event.detail.pendingTask) {
+    console.log('❌ Not from chat flow or no pending task, ignoring event');
+    return;
+  }
+  
+  const { taskName } = event.detail.pendingTask;
+  
+  try {
+    // 清理上传相关状态
+    window.uploadContext = 'default';
+    
+    // 发送确认消息
+    setTimeout(() => {
+      addChatMessage(`✅ Upload successfully! We can do ${taskName} now.`, 'ai');
+      
+      // 显示打字指示器并在2秒后启动新任务
+      showTypingIndicator();
+      setTimeout(async () => {
+        hideTypingIndicator();
+        await startNewTask();
+      }, 2000);
+      
+    }, 200); // 稍微延迟确保页面已完全显示
+    
+  } catch (error) {
+    console.error('❌ Error handling otherdocs upload complete:', error);
+    addChatMessage('Upload completed, but there was an error starting the task. Please try again.', 'ai');
   }
 }
 
@@ -421,7 +771,8 @@ function addChatMessage(message, sender) {
   
   const contentDiv = document.createElement('div');
   contentDiv.className = 'message-content';
-  contentDiv.innerHTML = message;
+  // 将 \n 转换为 <br/> 以支持换行
+  contentDiv.innerHTML = message.replace(/\n/g, '<br/>');
   
   messageDiv.appendChild(contentDiv);
   chatMessages.appendChild(messageDiv);
@@ -582,9 +933,35 @@ async function handleProtocolUpload(file) {
             window.showStep(1);
           }
           // Post a confirmation message into chat
-          setTimeout(() => {
+          setTimeout(async () => {
             try {
-              addChatMessage('✅ Your protocol has been uploaded successfully! I can access the document now.', 'ai');
+              const ctx = (typeof window !== 'undefined' && window.currentTaskContext) ? window.currentTaskContext : {};
+              const taskName = ctx.taskName || 'your project';
+              const taskKey = ctx.taskKey || null;
+              const studyIdentifier = ctx.studyIdentifier || null;
+
+              addChatMessage(`✅ Protocol uploaded successfully!`, 'ai');
+
+              // 为“从聊天去上传其他文档”设置 pendingNewTask，便于上传完成后自动开始任务
+              try {
+                window.pendingNewTask = {
+                  taskName,
+                  taskKey,
+                  studyIdentifier,
+                  studyNumber: ctx.studyNumber || null,
+                  documentId: (typeof window !== 'undefined' && window.currentDocumentId) ? window.currentDocumentId : null,
+                  isResuming: false
+                };
+              } catch (_) {}
+
+              // 🔥 统一逻辑：查询并显示现有文档，然后询问是否上传
+              if (studyIdentifier) {
+                await showExistingDocsAndAskUpload(taskName, studyIdentifier);
+              } else {
+                // 回退逻辑
+                addChatMessage(`Upload other documents to help to do ${taskName}?`, 'ai');
+                window.chatFlowState = 'awaiting_other_docs_for_new_task';
+              }
             } catch (e) { console.log('post-upload chat message failed:', e); }
           }, 200);
         });
@@ -836,6 +1213,7 @@ function initMainPageModule(config = {}) {
   moduleConfig = {
     API_BASE_URL: config.API_BASE_URL || 'https://localhost:4000',
     showStep: config.showStep || (() => console.warn('showStep not provided')),
+    showPage: config.showPage || (() => console.warn('showPage not provided')),
     showStatusMessage: config.showStatusMessage || ((msg, type) => console.warn('showStatusMessage not provided:', msg)),
     delayedNavigation: config.delayedNavigation || (() => console.warn('delayedNavigation not provided')),
 
@@ -865,6 +1243,10 @@ function initMainPageModule(config = {}) {
   
   initChatInterface();
   initFileUpload();
+  
+  // 🔥 添加 other documents 上传完成事件监听器
+  window.addEventListener('otherdocsUploadComplete', handleOtherDocsUploadComplete);
+  
   console.log('✅ mainpage 模块初始化完成');
 }
 
@@ -890,8 +1272,12 @@ if (typeof window !== 'undefined') {
     initFileUpload,
     resetAIChatInterface,
     handleChatSend,
-    handleProtocolUpload
+    handleProtocolUpload,
+    addChatMessage
   };
+   
+  // 暴露addChatMessage到全局，供其他模块使用
+  window.addChatMessage = addChatMessage;
 }
 
 

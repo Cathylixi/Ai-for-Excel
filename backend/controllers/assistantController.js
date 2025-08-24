@@ -62,12 +62,27 @@ async function lookupStudyTask(req, res) {
     let currentStatus = null;
     
     if (task.key === 'costEstimate') {
-      // 未完成：isCostEstimate 为 false 即未完成
-      isUnfinished = done.hasOwnProperty('isCostEstimate') ? !Boolean(done.isCostEstimate) : null;
+      // 🔥 新的三状态逻辑：null=从未开始, false=进行中, true=已完成
+      const status = done.isCostEstimate;
+      if (status === null || status === undefined) {
+        isUnfinished = null;  // 从未开始
+      } else if (status === false) {
+        isUnfinished = true;  // 已开始但未完成
+      } else if (status === true) {
+        isUnfinished = false; // 已完成
+      }
       // 🔥 获取当前的 sdtmAnalysisStatus 以便前端精确路由
       currentStatus = doc.CostEstimateDetails?.sdtmAnalysisStatus || null;
     } else if (task.key === 'sasAnalysis') {
-      isUnfinished = done.hasOwnProperty('isSasAnalysis') ? !Boolean(done.isSasAnalysis) : null;
+      // 🔥 新的三状态逻辑：null=从未开始, false=进行中, true=已完成
+      const status = done.isSasAnalysis;
+      if (status === null || status === undefined) {
+        isUnfinished = null;  // 从未开始
+      } else if (status === false) {
+        isUnfinished = true;  // 已开始但未完成
+      } else if (status === true) {
+        isUnfinished = false; // 已完成
+      }
       // 对于SAS分析，我们暂时不需要状态机，保持原有逻辑
       currentStatus = null;
     }
@@ -91,5 +106,31 @@ async function lookupStudyTask(req, res) {
 }
 
 module.exports = { parseCommand, lookupStudyTask };
+
+// ===== 新增：Yes/No 判别（轻量实现，前端可调用）=====
+// 请求体: { text: string }
+// 返回: { success: true, data: { intent: 'yes' | 'no' | 'unknown' } }
+async function parseYesNo(req, res) {
+  try {
+    const { text } = req.body || {};
+    if (!text || typeof text !== 'string') {
+      return res.status(400).json({ success: false, message: 'Missing text' });
+    }
+    const lower = text.trim().toLowerCase();
+    const yesList = ['yes','y','yeah','yep','ok','okay','sure','correct','right','confirm','confirmed','agree','agreed','当然','好的','是','没问题','行','可以'];
+    const noList  = ['no','n','nope','not','cancel','wrong','incorrect','拒绝','不要','不是','不行','不可以'];
+    const isYes = yesList.some(w => lower.includes(w));
+    const isNo  = noList.some(w => lower.includes(w));
+    let intent = 'unknown';
+    if (isYes && !isNo) intent = 'yes';
+    else if (isNo && !isYes) intent = 'no';
+    return res.json({ success: true, data: { intent } });
+  } catch (err) {
+    console.error('parseYesNo error:', err.message);
+    return res.status(500).json({ success: false, message: 'parse yes/no failed', error: err.message });
+  }
+}
+
+module.exports.parseYesNo = parseYesNo;
 
 

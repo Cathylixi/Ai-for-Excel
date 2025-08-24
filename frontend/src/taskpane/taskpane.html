@@ -17,6 +17,7 @@
     <link href="taskpane.css" rel="stylesheet" type="text/css" />
     <link href="mainpage/mainpage.css" rel="stylesheet" type="text/css" />
     <link href="costestimate/costestimate.css" rel="stylesheet" type="text/css" />
+    <link href="otherdocuments/otherdocuments.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="ms-font-m ms-welcome ms-Fabric">
@@ -83,11 +84,21 @@
             </button>
         </div>
 
+        <!-- Other Documents 独立页面 -->
+        <div class="wizard-page" id="otherdocuments-container" data-page="otherdocuments" style="display: none;">
+            <!-- 内容由 otherdocuments.html 动态加载 -->
+        </div>
+
+        <!-- SAS Analysis 独立页面 -->
+        <div class="wizard-page" id="sasanalysis-container" data-page="sasanalysis" style="display: none;"></div>
+
     </main>
 
     <!-- 模块脚本加载 -->
     <script src="mainpage/mainpage.js"></script>
     <script src="costestimate/costestimate.js"></script>
+    <script src="sasanalysis/sasanalysis.js"></script>
+    <script src="otherdocuments/otherdocuments.js"></script>
     
     <!-- 主控制器脚本 -->
     <script src="taskpane.js"></script>

@@ -23,9 +23,9 @@ const DocumentSchema = new mongoose.Schema({
   // 🔥 项目完成状态追踪（移到最外层，与studyNumber同级）
   projectDone: {
     // 成本估算是否完成（向导完成标记）
-    isCostEstimate: { type: Boolean, default: false },
+    isCostEstimate: { type: Boolean, default: null },
     // SAS Analysis 完成标记
-    isSasAnalysis: { type: Boolean, default: false }
+    isSasAnalysis: { type: Boolean, default: null }
   },
   
   // 🔁 上传解析产物统一归档到 uploadExtraction（与 projectDone、CostEstimateDetails 同级）

@@ -273,11 +273,18 @@ async function getDocuments(req, res) {
   }
 }
 
-// 🔥 新增：列出未完成的成本估算（projectDone.isCostEstimate=false）
+// 🔥 修改：列出未完成的成本估算（projectDone.isCostEstimate为null或false）
 async function listIncompleteEstimates(req, res) {
   try {
-    const docs = await Study.find({ 'projectDone.isCostEstimate': false })
-      .select('_id studyNumber files createdAt updatedAt')
+    // 查询条件：isCostEstimate 不等于 true（包括 null, false, undefined）
+    const docs = await Study.find({ 
+      $or: [
+        { 'projectDone.isCostEstimate': { $ne: true } },
+        { 'projectDone.isCostEstimate': { $exists: false } },
+        { 'projectDone': { $exists: false } }
+      ]
+    })
+      .select('_id studyNumber files createdAt updatedAt projectDone')
       .sort({ updatedAt: -1 })
       .lean();
     res.json({ success: true, data: docs });
@@ -344,6 +351,87 @@ async function getDocumentContent(req, res) {
   }
 }
 
+// 🔥 新增：获取Study的文档槽位状态（供前端列出CRF/SAP）
+async function getStudyDocuments(req, res) {
+  try {
+    const { studyIdentifier } = req.params;
+    // 允许传入 studyNumber 或 _id，两者择一
+    let study = null;
+    if (studyIdentifier && studyIdentifier.match(/^[0-9a-fA-F]{24}$/)) {
+      study = await Study.findById(studyIdentifier).lean();
+    }
+    if (!study) {
+      study = await Study.findOne({ studyNumber: studyIdentifier }).lean();
+    }
+
+    if (!study) {
+      return res.json({
+        success: true,
+        data: {
+          studyId: null,
+          hasProtocol: false,
+          hasCrf: false,
+          hasSap: false,
+          filesSummary: []
+        }
+      });
+    }
+
+    const files = study.files || {};
+    const protocol = files.protocol || {};
+    const crf = files.crf || {};
+    const sap = files.sap || {};
+
+    const filesSummary = [];
+    if (protocol.uploaded) {
+      filesSummary.push({
+        slot: 'PROTOCOL',
+        originalName: protocol.originalName || 'protocol.pdf',
+        size: formatBytes(protocol.fileSize),
+        uploadedAt: protocol.uploadedAt
+      });
+    }
+    if (crf.uploaded) {
+      filesSummary.push({
+        slot: 'CRF',
+        originalName: crf.originalName || 'crf.pdf',
+        size: formatBytes(crf.fileSize),
+        uploadedAt: crf.uploadedAt
+      });
+    }
+    if (sap.uploaded) {
+      filesSummary.push({
+        slot: 'SAP',
+        originalName: sap.originalName || 'sap.pdf',
+        size: formatBytes(sap.fileSize),
+        uploadedAt: sap.uploadedAt
+      });
+    }
+
+    return res.json({
+      success: true,
+      data: {
+        studyId: String(study._id),
+        hasProtocol: !!protocol.uploaded,
+        hasCrf: !!crf.uploaded,
+        hasSap: !!sap.uploaded,
+        filesSummary
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error getting study documents:', error);
+    return res.status(500).json({ success: false, message: 'Failed to get study documents', error: error.message });
+  }
+}
+
+// 辅助：格式化文件大小
+function formatBytes(bytes) {
+  if (!bytes || bytes === 0) return '';
+  const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+  const i = parseInt(Math.floor(Math.log(bytes) / Math.log(1024)), 10);
+  return `${Math.round(bytes / Math.pow(1024, i), 2)} ${sizes[i]}`;
+}
+
 
 
 // 确认SDTM分析结果
@@ -364,27 +452,61 @@ async function confirmSDTMAnalysis(req, res) {
 
     study.CostEstimateDetails = study.CostEstimateDetails || {};
 
-    // 转换mappings为简化的字符串格式（与sdtmAnalysis保持一致）
+    // 转换mappings为简化的 { procedure: "PE, VS" } 字符串映射（与sdtmAnalysis保持一致）
     const simplifiedMappings = new Map();
     if (mappings && typeof mappings === 'object') {
       if (mappings instanceof Map) {
-        // 如果已经是Map格式，直接处理
+        // 输入已是Map
         for (const [procedure, domains] of mappings) {
           if (Array.isArray(domains)) {
             simplifiedMappings.set(procedure, domains.join(', '));
-          } else {
+          } else if (typeof domains === 'string') {
+            simplifiedMappings.set(procedure, domains);
+          } else if (domains != null) {
             simplifiedMappings.set(procedure, String(domains));
           }
         }
       } else {
-        // 如果是普通对象，转换为Map
-        Object.entries(mappings).forEach(([procedure, domains]) => {
-          if (Array.isArray(domains)) {
-            simplifiedMappings.set(procedure, domains.join(', '));
-          } else {
-            simplifiedMappings.set(procedure, String(domains));
+        // 统一将对象/数组转换为值数组，便于处理如 {0:{...},1:{...}} 或 [{...},{...}]
+        const values = Array.isArray(mappings) ? mappings : Object.values(mappings);
+        const looksLikeArrayOfObjects = values.every(v => v && typeof v === 'object' && !Array.isArray(v));
+
+        if (looksLikeArrayOfObjects) {
+          // 形如 [{ procedure, sdtm_domains }] 或 {0:{...}}
+          for (const item of values) {
+            const procedureName = String(item.procedure || item.name || item.key || '').trim();
+            let domainRaw = item.sdtm_domains; // 🔥 主要字段名
+            if (domainRaw == null) domainRaw = item.domains;
+            if (domainRaw == null) domainRaw = item.domain;
+            if (domainRaw == null) domainRaw = item.value;
+            if (domainRaw == null) domainRaw = item.values;
+
+            let domainStr = '';
+            if (Array.isArray(domainRaw)) {
+              domainStr = domainRaw.join(', ');
+            } else if (typeof domainRaw === 'string') {
+              domainStr = domainRaw;
+            } else if (domainRaw != null) {
+              domainStr = String(domainRaw);
+            }
+
+            if (procedureName && domainStr) {
+              simplifiedMappings.set(procedureName, domainStr);
+            }
           }
-        });
+        } else {
+          // 形如 { 'Physical Examination': 'PE' } 的简单对象
+          Object.entries(mappings).forEach(([procedure, domains]) => {
+            if (!procedure) return;
+            if (Array.isArray(domains)) {
+              simplifiedMappings.set(procedure, domains.join(', '));
+            } else if (typeof domains === 'string') {
+              simplifiedMappings.set(procedure, domains);
+            } else if (domains != null) {
+              simplifiedMappings.set(procedure, String(domains));
+            }
+          });
+        }
       }
     }
 
@@ -552,7 +674,89 @@ async function updateProjectSelection(req, res) {
   }
 }
 
-// 🔥 新增：标记成本估算完成（Done）
+// 🔥 新增：标记任务开始（设置为进行中 false）
+async function markTaskAsStarted(req, res) {
+  try {
+    const { id } = req.params;
+    const { taskKey } = req.body;
+    
+    if (!taskKey || !['costEstimate', 'sasAnalysis'].includes(taskKey)) {
+      return res.status(400).json({ success: false, message: 'Invalid taskKey, expected costEstimate or sasAnalysis' });
+    }
+    
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+    
+    study.projectDone = study.projectDone || {};
+    
+    if (taskKey === 'costEstimate') {
+      study.projectDone.isCostEstimate = false;  // 设置为进行中
+    } else if (taskKey === 'sasAnalysis') {
+      study.projectDone.isSasAnalysis = false;   // 设置为进行中
+    }
+    
+    await study.save();
+    
+    console.log(`✅ Task ${taskKey} marked as started for study ${id}`);
+    res.json({ 
+      success: true, 
+      message: `Task ${taskKey} marked as started`, 
+      data: { 
+        documentId: id, 
+        taskKey,
+        status: 'started' 
+      } 
+    });
+  } catch (error) {
+    console.error('标记任务开始失败:', error);
+    res.status(500).json({ success: false, message: '标记任务开始失败', error: error.message });
+  }
+}
+
+// 🔥 新增：标记任务完成（通用）
+async function markTaskAsDone(req, res) {
+  try {
+    const { id } = req.params;
+    const { taskKey } = req.body;
+    
+    if (!taskKey || !['costEstimate', 'sasAnalysis'].includes(taskKey)) {
+      return res.status(400).json({ success: false, message: 'Invalid taskKey, expected costEstimate or sasAnalysis' });
+    }
+    
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+    
+    study.projectDone = study.projectDone || {};
+    
+    if (taskKey === 'costEstimate') {
+      study.projectDone.isCostEstimate = true;
+    } else if (taskKey === 'sasAnalysis') {
+      study.projectDone.isSasAnalysis = true;
+    }
+    
+    await study.save();
+    
+    console.log(`✅ Task ${taskKey} marked as completed for study ${id}`);
+    res.json({ 
+      success: true, 
+      message: `Task ${taskKey} marked as completed`, 
+      data: { 
+        documentId: id, 
+        taskKey,
+        status: 'completed' 
+      } 
+    });
+  } catch (error) {
+    console.error('标记任务完成失败:', error);
+    res.status(500).json({ success: false, message: '标记任务完成失败', error: error.message });
+  }
+}
+
+// 🔥 保持向后兼容：标记成本估算完成（Done）
 async function markCostEstimateDone(req, res) {
   try {
     const { id } = req.params;
@@ -619,11 +823,11 @@ async function analyzeDocumentForSdtm(req, res) {
 
     // Step 3: Merge results appropriately based on document type
     let sdtmAnalysis;
-    if (document.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
+    if (study.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
       // PDF path: Keep existing procedures, only add mappings & summary
       console.log('📄 PDF: Preserving existing procedures, adding AI mappings & summary');
       sdtmAnalysis = {
-        ...document.CostEstimateDetails.sdtmAnalysis, // Preserve existing procedures
+        ...study.CostEstimateDetails.sdtmAnalysis, // Preserve existing procedures
         ...mappingResult, // Add new mappings and summary
         analyzedAt: new Date()
       };
@@ -638,8 +842,14 @@ async function analyzeDocumentForSdtm(req, res) {
     }
 
     // Save complete analysis results
-    study.CostEstimateDetails = study.CostEstimateDetails || {};
-    study.CostEstimateDetails.sdtmAnalysis = sdtmAnalysis;
+    // 重新获取最新文档以避免版本冲突
+    const latestStudy = await Study.findById(id);
+    if (!latestStudy) {
+      return res.status(404).json({ success: false, message: 'Study not found during save' });
+    }
+    
+    latestStudy.CostEstimateDetails = latestStudy.CostEstimateDetails || {};
+    latestStudy.CostEstimateDetails.sdtmAnalysis = sdtmAnalysis;
 
     // Generate cost estimation snapshot based on analysis results
     try {
@@ -665,16 +875,16 @@ async function analyzeDocumentForSdtm(req, res) {
         xptConversion: allDomains.join('/')
       };
       
-      const pced = study.CostEstimateDetails;
+      const pced = latestStudy.CostEstimateDetails;
       pced.sdtmTableInput = pced.sdtmTableInput || {};
       pced.sdtmTableInput['SDTM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
       pced.sdtmTableInput.createdAt = new Date();
     } catch (e) { console.warn('Cost estimation generation failed:', e.message); }
 
     // Set analysis status to completed
-    study.CostEstimateDetails.sdtmAnalysisStatus = 'sdtm_ai_analysis_done';
+    latestStudy.CostEstimateDetails.sdtmAnalysisStatus = 'sdtm_ai_analysis_done';
 
-    await study.save();
+    await latestStudy.save();
 
     console.log('✅ Unified SDTM analysis completed for both Word and PDF');
     console.log(`📊 Analysis results: ${sdtmAnalysis.procedures?.length || 0} procedures, ${sdtmAnalysis.mappings?.size || 0} mappings`);
@@ -811,15 +1021,68 @@ async function deleteDocument(req, res) {
   }
 }
 
+// 新增：为现有Study上传额外文件（CRF/SAP），仅记录元数据，不解析
+async function uploadAdditionalFile(req, res) {
+  try {
+    const { id } = req.params; // Study ID
+    const { fileType } = req.body; // 'crf' | 'sap'
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No file uploaded' });
+    }
+    if (!fileType || !['crf', 'sap'].includes(String(fileType).toLowerCase())) {
+      return res.status(400).json({ success: false, message: 'Invalid fileType, expected crf or sap' });
+    }
+
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+
+    const slotKey = String(fileType).toLowerCase();
+    study.files = study.files || {};
+    study.files[slotKey] = study.files[slotKey] || {};
+    
+    // 仅保存元数据，不进行解析
+    study.files[slotKey].uploaded = true;
+    study.files[slotKey].originalName = req.file.originalname;
+    study.files[slotKey].fileSize = req.file.size;
+    study.files[slotKey].mimeType = req.file.mimetype;
+    study.files[slotKey].uploadedAt = new Date();
+    // 不解析时，保留现有的 uploadExtraction，不强制写入
+
+    await study.save();
+
+    return res.json({
+      success: true,
+      message: `Uploaded ${slotKey.toUpperCase()} successfully`,
+      data: {
+        studyId: String(study._id),
+        fileType: slotKey,
+        originalName: req.file.originalname,
+        fileSize: req.file.size,
+        uploadedAt: study.files[slotKey].uploadedAt
+      }
+    });
+  } catch (error) {
+    console.error('uploadAdditionalFile error:', error);
+    return res.status(500).json({ success: false, message: 'Upload additional file failed', error: error.message });
+  }
+}
+
 module.exports = {
   uploadDocument,
   getDocuments,
   listIncompleteEstimates,
   getDocumentContent,
+  getStudyDocuments,
   confirmSDTMAnalysis,
   updateProjectSelection,
+  markTaskAsStarted,
+  markTaskAsDone,
   markCostEstimateDone,
   analyzeDocumentForSdtm,
   updateUnits,
-  deleteDocument
+  deleteDocument,
+  uploadAdditionalFile
 }; 

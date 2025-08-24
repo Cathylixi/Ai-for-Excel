@@ -162,7 +162,7 @@ async function createStandardCostAnalysisHeaders() {
       await context.sync();
       
       console.log('✅ 标准成本分析表格标题已创建');
-      moduleConfig.showStatusMessage('Excel table headers created successfully!', 'success');
+      // moduleConfig.showStatusMessage('Excel table headers created successfully!', 'success');
     });
   } catch (error) {
     console.error('❌ 创建Excel标题时出错:', error);
@@ -480,7 +480,7 @@ async function populateExcelWithSelectedProjects(passedProjectDetails = null) {
 
       await context.sync();
       console.log('✅ Excel项目列表已填充完成（完整逻辑）');
-      moduleConfig.showStatusMessage('Excel table populated successfully!', 'success');
+      // moduleConfig.showStatusMessage('Excel table populated successfully!', 'success');
     });
 
   } catch (error) {
@@ -1120,7 +1120,7 @@ async function confirmSDTMAnalysis() {
     if (editBtn) editBtn.disabled = true;
     if (confirmBtn) confirmBtn.disabled = true;
 
-    moduleConfig.showStatusMessage('SDTM analysis confirmed and saved successfully!', 'success');
+    // moduleConfig.showStatusMessage('SDTM analysis confirmed and saved successfully!', 'success');
     
     // ⬇️ 根据返回的成本估算快照，填入Excel中的 Unit、Estimated cost 和 Notes
     const costEstimate = result?.data?.costEstimate;
@@ -1257,7 +1257,7 @@ async function applySDTMUnitsAndCostsToExcel(snapshot) {
       }
 
       await context.sync();
-      moduleConfig.showStatusMessage('Units, estimated costs and subtotal applied from confirmed SDTM data.', 'success');
+      // moduleConfig.showStatusMessage('Units, estimated costs and subtotal applied from confirmed SDTM data.', 'success');
     });
   } catch (err) {
     console.error('Failed to write SDTM units and costs:', err);
@@ -1301,7 +1301,7 @@ async function applySDTMNotesToExcel(sdtmInfo) {
       }
 
       await context.sync();
-      moduleConfig.showStatusMessage('Notes updated from SDTM confirmed data.', 'success');
+      // moduleConfig.showStatusMessage('Notes updated from SDTM confirmed data.', 'success');
     });
   } catch (err) {
     console.error('Failed to write SDTM notes:', err);
@@ -1355,7 +1355,7 @@ async function saveExcelChangesToDatabase() {
       const result = await response.json();
       if (result.success) {
         console.log('✅ Excel Unit变化已同步到数据库');
-        moduleConfig.showStatusMessage('Units updated and saved automatically!', 'success');
+        // moduleConfig.showStatusMessage('Units updated and saved automatically!', 'success');
       } else {
         console.warn('⚠️ 保存Unit变化失败:', result.message);
       }

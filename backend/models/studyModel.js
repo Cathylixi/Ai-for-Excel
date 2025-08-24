@@ -106,8 +106,8 @@ const StudySchema = new mongoose.Schema({
   },
 
   projectDone: {
-    isCostEstimate: { type: Boolean, default: false },
-    isSasAnalysis: { type: Boolean, default: false }
+    isCostEstimate: { type: Boolean, default: null },
+    isSasAnalysis: { type: Boolean, default: null }
   },
 
   CostEstimateDetails: { type: CostEstimateDetailsSchema, default: {} },

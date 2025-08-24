@@ -1,0 +1,32 @@
+/* Other Documents Upload - dedicated styles (kept minimal)
+ * This page intentionally reuses global styles from taskpane.css and mainpage.css.
+ * Only light, page-specific adjustments are defined here.
+ */
+
+.otherdocs-protocol-wrapper {
+  height: 100%;
+  overflow-y: auto;
+  padding: 16px;
+}
+
+.otherdocs-protocol-wrapper .upload-area {
+  border: 1px dashed #c8c8c8;
+  border-radius: 6px;
+}
+
+.otherdocs-protocol-wrapper .upload-content {
+  text-align: center;
+}
+
+.otherdocs-protocol-wrapper .upload-icon {
+  color: #8a8886;
+}
+
+.otherdocs-protocol-wrapper .upload-result .file-info {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+
+
