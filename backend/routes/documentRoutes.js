@@ -6,12 +6,14 @@ const {
   getDocumentContent, 
   getStudyDocuments,
   confirmSDTMAnalysis,
+  confirmADaMAnalysis,
   updateProjectSelection,
   markTaskAsStarted,
   markTaskAsDone,
   markCostEstimateDone,
   listIncompleteEstimates,
   analyzeDocumentForSdtm,
+  analyzeDocumentForAdam,
   updateUnits,
   uploadAdditionalFile
 } = require('../controllers/documentController');
@@ -61,6 +63,9 @@ router.get('/documents/:id/content', getDocumentContent);
 // 确认SDTM分析结果 API
 router.patch('/documents/:id/confirm-sdtm', confirmSDTMAnalysis);
 
+// 确认ADaM分析结果 API
+router.patch('/documents/:id/confirm-adam', confirmADaMAnalysis);
+
 // 更新项目选择详细信息 API
 router.patch('/documents/:id/project-selection', updateProjectSelection);
 
@@ -78,5 +83,8 @@ router.patch('/documents/:id/update-units', updateUnits);
 
 // 🔥 新增：获取Study的文档槽位状态
 router.get('/studies/:studyIdentifier/documents', getStudyDocuments);
+
+// 新增：分析指定文档的ADaM映射
+router.post('/documents/:id/analyze-adam', analyzeDocumentForAdam);
 
 module.exports = router; 

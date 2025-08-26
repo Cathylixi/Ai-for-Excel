@@ -1,6 +1,6 @@
 /*
- * costestimate.css - Step 3-6 样式 (CostEstimate 模块)
- * 职责：项目选择、分析进度、SDTM结果、完成确认页面样式
+ * costestimate.css - Step 3-7 样式 (CostEstimate 模块)
+ * 职责：项目选择、分析进度、SDTM结果、ADaM结果、完成确认页面样式
  */
 
 /* ===== Step 3: Project Selection 样式 ===== */
@@ -331,6 +331,80 @@
     box-sizing: border-box;
 }
 
+/* ===== Step 6: ADaM Analysis Results 样式 ===== */
+/* 🔥 复制SDTM样式用于ADaM */
+
+/* ADaM Analysis Results Section */
+.costestimate-step6,
+.adam-analysis-section {
+    /* 与 Step 5 SDTM 保持一致的布局样式 */
+    width: 100%;
+    max-width: none;
+    margin: 15px auto;
+    padding: 20px;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    background-color: #f0f8ff;
+    box-sizing: border-box;
+}
+
+.costestimate-step6 h3,
+.adam-analysis-section h3 {
+    margin-top: 0;
+    margin-bottom: 15px;
+    color: #333;
+    text-align: left;
+}
+
+.adam-summary {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid #d0e7ff;
+}
+
+.adam-mappings-container {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #d0e7ff;
+    margin-bottom: 15px;
+}
+
+.analysis-status {
+    background-color: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 6px;
+    padding: 12px;
+    margin-bottom: 15px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+/* ADaM Analyzing Status - 复制Step 4样式 */
+.adam-analyzing-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 40px 20px;
+    min-height: 300px;
+}
+
+.adam-analyzing-status h3 {
+    margin-bottom: 15px;
+    color: #333;
+}
+
+.adam-analyzing-status p {
+    margin-bottom: 30px;
+    color: #666;
+    max-width: 400px;
+}
+
 .costestimate-step5 h3,
 .sdtm-analysis-section h3 {
     margin-top: 0;
@@ -340,6 +414,15 @@
 }
 
 .sdtm-summary {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    margin-bottom: 15px;
+    border: 1px solid #d0e7ff;
+}
+
+/* ADaM summary mirrors SDTM summary */
+.adam-summary {
     background-color: white;
     border-radius: 6px;
     padding: 15px;
@@ -453,6 +536,15 @@
 
 /* Main mappings container - NEW LAYOUT */
 .sdtm-mappings-container {
+    background-color: white;
+    border-radius: 6px;
+    padding: 15px;
+    border: 1px solid #d0e7ff;
+    margin-bottom: 15px;
+}
+
+/* ADaM mappings container mirrors SDTM container */
+.adam-mappings-container {
     background-color: white;
     border-radius: 6px;
     padding: 15px;
@@ -645,7 +737,22 @@
     gap: 15px;
 }
 
+/* ADaM mappings list mirrors flat-mappings-list */
+.adam-mappings-list {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
 .flat-mapping-item {
+    background-color: #f8f9fa;
+    border-radius: 6px;
+    padding: 15px;
+    border-left: 4px solid #0078d7;
+}
+
+/* ADaM mapping item mirrors flat-mapping-item */
+.adam-mapping-item {
     background-color: #f8f9fa;
     border-radius: 6px;
     padding: 15px;
@@ -659,7 +766,24 @@
     font-size: 14px;
 }
 
+/* ADaM SDTM name mirrors flat-procedure-name */
+.adam-sdtm-name {
+    font-weight: 600;
+    color: #333;
+    margin-bottom: 8px;
+    font-size: 14px;
+}
+
 .flat-domain-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: flex-start;
+    max-width: 100%;
+}
+
+/* ADaM domain tags mirrors flat-domain-tags */
+.adam-domain-tags {
     display: flex;
     flex-wrap: wrap;
     gap: 6px;
@@ -719,10 +843,12 @@
     margin-top: 15px;
 }
 
-/* 响应式设计 - SDTM分析部分 */
+/* 响应式设计 - SDTM/ADaM分析部分 */
 @media (max-width: 600px) {
     .costestimate-step5,
-    .sdtm-analysis-section {
+    .sdtm-analysis-section,
+    .costestimate-step6,
+    .adam-analysis-section {
         margin: 10px auto;
         padding: 15px;
     }
@@ -742,17 +868,19 @@
         gap: 15px;
     }
 
-    .flat-mappings-list {
+    .flat-mappings-list,
+    .adam-mappings-list {
         gap: 12px;
     }
 
-    .flat-mapping-item {
+    .flat-mapping-item,
+    .adam-mapping-item {
         padding: 12px;
     }
 }
 
-/* ===== Step 6: Completion 样式 ===== */
-.costestimate-step6 {
+/* ===== Step 7: Completion 样式 ===== */
+.costestimate-step7 {
   display: flex;
   flex-direction: column;
   align-items: center;

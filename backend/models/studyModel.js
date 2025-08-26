@@ -89,10 +89,49 @@ const CostEstimateDetailsSchema = new mongoose.Schema({
   },
   sdtmAnalysisStatus: {
     type: String,
-    enum: ['project_selection_done', 'sdtm_ai_analysis_done', 'user_confirmed_sdtm_done'],
+    enum: ['project_selection_done', 'sdtm_ai_analysis_done', 'user_confirmed_sdtm_done', 'adam_ai_analysis_done', 'user_confirmed_adam_done'],
     default: null
   },
-  sdtmTableInput: { type: mongoose.Schema.Types.Mixed, default: {} }
+  sdtmTableInput: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+  // ADaM分析结果字段（按要求排在 sdtmTableInput 之后）
+  adamAnalysis: {
+    success: { type: Boolean, default: false },
+    mappings: {
+      type: Map,
+      of: { type: String }, // SDTM域 -> ADaM域字符串的映射（逗号分隔）
+      default: new Map()
+    },
+    summary: {
+      total_adam_domains: { type: Number, default: 0 },
+      unique_adam_domains: [{ type: String }],
+      highComplexityAdam: {
+        count: { type: Number, default: 0 },
+        domains: [{ type: String }]
+      },
+      mediumComplexityAdam: {
+        count: { type: Number, default: 0 },
+        domains: [{ type: String }]
+      }
+    },
+    analyzedAt: { type: Date }
+  },
+  
+  // ✅ 新增：用户确认的ADaM（与 userConfirmedSdtm 对齐，放在 adamAnalysis 之后）
+  userConfirmedAdam: {
+    success: { type: Boolean, default: false },
+    mappings: { type: Map, of: { type: String }, default: new Map() },
+    summary: {
+      total_adam_domains: { type: Number },
+      unique_adam_domains: [{ type: String }],
+      highComplexityAdam: { count: { type: Number }, domains: [{ type: String }] },
+      mediumComplexityAdam: { count: { type: Number }, domains: [{ type: String }] }
+    },
+    confirmedAt: { type: Date }
+  },
+
+  // ✅ 新增：ADaM表格输入数据快照（与 sdtmTableInput 一致，放在 userConfirmedAdam 之后）
+  adamTableInput: { type: mongoose.Schema.Types.Mixed, default: {} }
 }, { _id: false });
 
 const StudySchema = new mongoose.Schema({

@@ -24,7 +24,8 @@ let excelStateCache = {
   step3: null,   // Project Selection完成后 + Excel Headers
   step4: null,   // Analysis Progress（占位）
   step5: null,   // SDTM Analysis结果页
-  step6: null    // 完成确认页（占位）
+  step6: null,   // ADaM Analysis页（占位）
+  step7: null    // 完成确认页（占位）
 };
 
 // Excel变化监听和数据同步
@@ -169,7 +170,7 @@ function showStep(step) {
     if (nextBtn) {
       nextBtn.disabled = false;
       const label = nextBtn.querySelector('.ms-Button-label');
-      if (label) label.textContent = (step === 6) ? 'Done' : 'Next';
+      if (label) label.textContent = (step === 7) ? 'Done' : 'Next';
     }
   }
   
@@ -249,8 +250,8 @@ async function handleNext() {
     return;
   }
 
-  if (currentWizardStep >= 3 && currentWizardStep <= 6) {
-    // Step3-6: 委托给CostEstimate模块处理
+  if (currentWizardStep >= 3 && currentWizardStep <= 7) {
+    // Step3-7: 委托给CostEstimate模块处理
     if (window.CostEstimateModule && window.CostEstimateModule.handleNext) {
       await window.CostEstimateModule.handleNext(currentWizardStep);
     } else {
@@ -305,13 +306,25 @@ async function handleNextFallback(step) {
       }
       break;
     case 4:
-    case 5:
       await cacheExcelState(step);
       showStep(step + 1);
       break;
+    case 5:
+      // Step 5 (SDTM Results) → Step 6 (ADaM Analysis): 触发ADaM分析
+      await cacheExcelState(step);
+      showStep(6); // 立即跳转到ADaM分析页面
+      
+      // 自动触发ADaM分析
+      await triggerADaMAnalysis();
+      break;
     case 6:
+      // Step 6 (ADaM Results) → Step 7 (Completion)
+      await cacheExcelState(step);
+      showStep(step + 1);
+      break;
+    case 7:
       // Done - 标记完成，保存Excel，清空内容，重置应用
-      await cacheExcelState(6);
+      await cacheExcelState(7);
       if (!window.currentDocumentId) {
         showStatusMessage('Missing document id. Please upload again.', 'error');
         return;
@@ -397,14 +410,53 @@ async function triggerSDTMAnalysis() {
   }
 }
 
+// ===== ADaM分析触发 =====
+async function triggerADaMAnalysis() {
+  try {
+    console.log('🔄 开始自动触发ADaM分析...');
+    
+    const documentId = window.currentDocumentId;
+    if (!documentId) {
+      throw new Error('No document ID available');
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/api/documents/${documentId}/analyze-adam`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`ADaM analysis failed: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('✅ ADaM分析完成，状态: adam_ai_analysis_done');
+    
+    // 分析完成后加载并显示ADaM分析结果
+    setTimeout(async () => {
+      // 自动加载并显示ADaM分析结果
+      if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplayADaMResults) {
+        await window.CostEstimateModule.loadAndDisplayADaMResults();
+      }
+    }, 2000);
+    
+  } catch (error) {
+    console.error('❌ ADaM分析失败:', error);
+    showStatusMessage('ADaM Analysis failed: ' + error.message, 'error');
+  }
+}
+
 // 🔥 暴露给其他模块使用
 window.triggerSDTMAnalysis = triggerSDTMAnalysis;
+window.triggerADaMAnalysis = triggerADaMAnalysis;
 
 // ===== 模块通知 =====
 function notifyModuleStepChange(stepNumber) {
   if (stepNumber <= 2 && window.MainPageModule && window.MainPageModule.onStepEnter) {
     window.MainPageModule.onStepEnter(stepNumber);
-  } else if (stepNumber >= 3 && stepNumber <= 6 && window.CostEstimateModule && window.CostEstimateModule.onStepEnter) {
+  } else if (stepNumber >= 3 && stepNumber <= 7 && window.CostEstimateModule && window.CostEstimateModule.onStepEnter) {
     window.CostEstimateModule.onStepEnter(stepNumber);
   }
 }
@@ -596,17 +648,103 @@ async function clearDocumentIdFromSettings() {
   }
 }
 
+// ===== 智能状态检测 =====
+async function getDocumentState(documentId) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/documents/${documentId}/content`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch document data');
+    }
+    
+    const docData = await response.json();
+    if (!docData.success) {
+      throw new Error(docData.message || 'Failed to get document content');
+    }
+    
+    const document = docData.document;
+    const sdtmAnalysisStatus = document?.CostEstimateDetails?.sdtmAnalysisStatus;
+    const hasProjectSelection = document?.CostEstimateDetails?.projectSelection?.selectionDetails && 
+                               Object.keys(document.CostEstimateDetails.projectSelection.selectionDetails).length > 0;
+    
+    console.log('🔍 [DEBUG] 文档状态检测结果:', {
+      sdtmAnalysisStatus,
+      hasProjectSelection,
+      documentId
+    });
+    
+    return {
+      status: sdtmAnalysisStatus,
+      hasProjectSelection,
+      document
+    };
+  } catch (error) {
+    console.error('❌ 检测文档状态失败:', error);
+    throw error;
+  }
+}
+
+// 状态到步骤的映射
+function getStepByStatus(status, hasProjectSelection) {
+  // 根据数据库状态智能决定跳转到哪一步
+  if (!status && !hasProjectSelection) {
+    return 1; // 没有任何数据 → Step 1: 上传文档
+  } else if (!status && hasProjectSelection) {
+    return 4; // 只有项目选择 → Step 4: 开始分析
+  } else if (status === 'project_selection_done') {
+    return 4; // 项目选择完成 → Step 4: 开始分析
+  } else if (status === 'sdtm_ai_analysis_done') {
+    return 5; // SDTM AI分析完成 → Step 5: SDTM结果页
+  } else if (status === 'user_confirmed_sdtm_done') {
+    return 5; // SDTM确认完成 → Step 5: SDTM结果页 (但会显示已确认状态)
+  } else if (status === 'adam_ai_analysis_done') {
+    return 6; // ADaM AI分析完成 → Step 6: ADaM结果页
+  } else if (status === 'user_confirmed_adam_done') {
+    return 6; // ADaM确认完成 → Step 6: ADaM结果页 (显示已确认状态)
+  } else {
+    return 1; // 未知状态 → 降级到Step 1
+  }
+}
+
 // ===== 应用状态恢复 =====
 async function attemptStateRecovery() {
   try {
     const savedDocumentId = await loadDocumentIdFromSettings();
     if (savedDocumentId) {
-      console.log('🔄 发现已保存的文档ID，尝试恢复状态...');
-      if (window.CostEstimateModule && window.CostEstimateModule.restoreApplicationState) {
-        await window.CostEstimateModule.restoreApplicationState(savedDocumentId);
+      console.log('🔄 发现已保存的文档ID，开始智能状态恢复...');
+      
+      // 1. 检测文档状态
+      const stateInfo = await getDocumentState(savedDocumentId);
+      const targetStep = getStepByStatus(stateInfo.status, stateInfo.hasProjectSelection);
+      
+      console.log(`🎯 根据状态 "${stateInfo.status}" 决定跳转到 Step ${targetStep}`);
+      
+      // 2. 根据状态调用相应的恢复函数
+      if (stateInfo.status === 'adam_ai_analysis_done' || stateInfo.status === 'user_confirmed_adam_done') {
+        // ADaM相关状态：恢复ADaM页面
+        console.log('🔄 恢复ADaM分析状态...');
+        if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplayADaMResults) {
+          await window.CostEstimateModule.loadAndDisplayADaMResults();
+        }
+      } else if (stateInfo.status === 'sdtm_ai_analysis_done' || stateInfo.status === 'user_confirmed_sdtm_done') {
+        // SDTM相关状态：恢复SDTM页面
+        console.log('🔄 恢复SDTM分析状态...');
+        if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
+          await window.CostEstimateModule.loadAndDisplaySDTMResults();
+        }
+      } else if (stateInfo.hasProjectSelection) {
+        // 只有项目选择：恢复Excel表格
+        console.log('🔄 恢复项目选择状态...');
+        if (window.CostEstimateModule && window.CostEstimateModule.createStandardCostAnalysisHeaders) {
+          await window.CostEstimateModule.createStandardCostAnalysisHeaders();
+          await window.CostEstimateModule.populateExcelWithSelectedProjects();
+        }
       }
-      showStep(5); // 跳转到结果页
+      
+      // 3. 跳转到正确的步骤
+      showStep(targetStep);
+      
     } else {
+      console.log('🆕 没有保存的文档ID，开始新会话');
       showStep(1); // 开始新会话
     }
   } catch (error) {

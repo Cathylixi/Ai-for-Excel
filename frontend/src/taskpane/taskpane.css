@@ -52,7 +52,8 @@ html, body {
 .wizard-page[data-step="3"],
 .wizard-page[data-step="4"],
 .wizard-page[data-step="5"],
-.wizard-page[data-step="6"] {
+.wizard-page[data-step="6"],
+.wizard-page[data-step="7"] {
   padding: 20px;
 }
 
@@ -72,7 +73,8 @@ html, body {
 #mainpage-step2-container,
 #costestimate-step4-container,
 #costestimate-step5-container,
-#costestimate-step6-container {
+#costestimate-step6-container,
+#costestimate-step7-container {
   height: 100%;
   width: 100%;
 }
@@ -231,7 +233,8 @@ html, body {
   .wizard-page[data-step="3"],
   .wizard-page[data-step="4"],
   .wizard-page[data-step="5"],
-  .wizard-page[data-step="6"] {
+  .wizard-page[data-step="6"],
+  .wizard-page[data-step="7"] {
     padding: 15px;
   }
   

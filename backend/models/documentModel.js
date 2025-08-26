@@ -136,10 +136,10 @@ const DocumentSchema = new mongoose.Schema({
       confirmedAt: { type: Date, default: Date.now }
     },
 
-    // SDTM分析状态 - 新的三步状态机
+    // SDTM分析状态 - 新的四步状态机（包含ADaM）
     sdtmAnalysisStatus: {
       type: String,
-      enum: ['project_selection_done', 'sdtm_ai_analysis_done', 'user_confirmed_sdtm_done'],
+      enum: ['project_selection_done', 'sdtm_ai_analysis_done', 'user_confirmed_sdtm_done', 'adam_ai_analysis_done'],
       default: null
     },
 
@@ -147,6 +147,29 @@ const DocumentSchema = new mongoose.Schema({
     sdtmTableInput: {
       type: mongoose.Schema.Types.Mixed,
       default: {}
+    },
+
+    // ADaM分析结果字段
+    adamAnalysis: {
+      success: { type: Boolean, default: false },
+      mappings: {
+        type: Map,
+        of: { type: String }, // SDTM域 -> ADaM域字符串的映射（逗号分隔）
+        default: new Map()
+      },
+      summary: {
+        total_adam_domains: { type: Number, default: 0 },
+        unique_adam_domains: [{ type: String }],
+        highComplexityAdam: {
+          count: { type: Number, default: 0 },
+          domains: [{ type: String }]
+        },
+        mediumComplexityAdam: {
+          count: { type: Number, default: 0 },
+          domains: [{ type: String }]
+        }
+      },
+      analyzedAt: { type: Date }
     }
   },
   

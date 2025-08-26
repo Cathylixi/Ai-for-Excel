@@ -398,15 +398,23 @@ function getTargetStepByStatus(currentStatus, taskKey) {
         
       case 'project_selection_done':
         // 用户已完成项目选择，需要进行AI分析
-        return 4; // Step 4: Analyzing Protocol (会自动触发分析)
+        return 4; // Step 4: Start Analyzing (会自动触发分析)
         
       case 'sdtm_ai_analysis_done':
         // AI分析已完成，用户需要查看并确认结果
         return 5; // Step 5: SDTM Analysis Results
         
       case 'user_confirmed_sdtm_done':
-        // 用户已确认分析结果，进入最后步骤
-        return 6; // Step 6: Completion Confirmation (需要恢复表格)
+        // 用户已确认分析结果，保持在SDTM结果页面
+        return 5; // Step 5: SDTM Results (显示已确认状态)
+        
+      case 'adam_ai_analysis_done':
+        // ADaM分析完成，进入最后步骤
+        return 6; // Step 6: ADaM Analysis Results
+        
+      case 'user_confirmed_adam_done':
+        // ADaM确认完成，保持在ADaM结果页面
+        return 6; // Step 6: ADaM Results (显示已确认状态)
         
       default:
         console.warn(`⚠️ Unknown status: '${currentStatus}', defaulting to Step 3`);
@@ -685,21 +693,23 @@ async function startNewTask() {
           }
         }, 1000);
       } else if (targetStep === 6 && taskKey === 'costEstimate') {
-        // Step 6: 完成页面，恢复完整的Excel表格
+        // Step 6: ADaM分析页面，恢复完整的Excel表格，加载ADaM结果
         await safeDelayedNavigation(targetStep);
         setTimeout(async () => {
           try {
-            if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplaySDTMResults) {
-              console.log('🔄 恢复完成项目的Excel表格（Step 6）...');
-              await window.CostEstimateModule.loadAndDisplaySDTMResults();
+            if (window.CostEstimateModule && window.CostEstimateModule.loadAndDisplayADaMResults) {
+              console.log('🔄 恢复ADaM分析项目的Excel表格（Step 6）...');
+              await window.CostEstimateModule.loadAndDisplayADaMResults();
             } else {
-              console.warn('⚠️ loadAndDisplaySDTMResults函数不可用');
+              console.warn('⚠️ loadAndDisplayADaMResults函数不可用');
             }
           } catch (error) {
-            console.error('❌ 恢复Step 6 Excel表格失败:', error);
+            console.error('❌ 恢复Step 6 ADaM结果失败:', error);
           }
         }, 1000);
       } else {
+        // 🔥 Step 7 (Analysis Complete) 不支持自动恢复
+        // 只能通过用户在Step 6点击Next按钮到达
         // 其他情况，直接跳转
         await safeDelayedNavigation(targetStep);
       }

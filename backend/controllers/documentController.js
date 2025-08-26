@@ -4,6 +4,7 @@ const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
 const { processPdfWithPypdf, formatResultForDatabase, pypdfService } = require('../services/pypdfService');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
+const { performADaMAnalysis } = require('../services/adamAnalysisService');
 
 
 // 上传文档处理函数（Study-level with file slots）
@@ -317,14 +318,17 @@ async function getDocumentContent(req, res) {
         _id: study._id,
         studyNumber: study.studyNumber || null,
         uploadedAt: proto.uploadedAt || study.createdAt,
-        // 🔥 完整的 CostEstimateDetails 结构
+        // 🔥 完整的 CostEstimateDetails 结构（按你要求的顺序）
         CostEstimateDetails: {
-          // 保证顺序：projectSelection → sdtmAnalysis → userConfirmedSdtm → sdtmAnalysisStatus → sdtmTableInput
+          // 顺序：projectSelection → sdtmAnalysis → userConfirmedSdtm → sdtmAnalysisStatus → sdtmTableInput → adamAnalysis → userConfirmedAdam → adamTableInput
           projectSelection: pced.projectSelection || { success: false, selectedProjects: [], selectionDetails: {} },
           sdtmAnalysis: pced.sdtmAnalysis || null,
           userConfirmedSdtm: pced.userConfirmedSdtm || null,
           sdtmAnalysisStatus: pced.sdtmAnalysisStatus || null,
-          sdtmTableInput: pced.sdtmTableInput || {}
+          sdtmTableInput: pced.sdtmTableInput || {},
+          adamAnalysis: pced.adamAnalysis || null,
+          userConfirmedAdam: pced.userConfirmedAdam || null,
+          adamTableInput: pced.adamTableInput || {}
         },
         
         // 🔥 保持向后兼容的sdtmData结构
@@ -603,6 +607,183 @@ async function confirmSDTMAnalysis(req, res) {
     res.status(500).json({
       success: false,
       message: '确认SDTM分析结果失败',
+      error: error.message
+    });
+  }
+}
+
+// 确认ADaM分析结果
+async function confirmADaMAnalysis(req, res) {
+  try {
+    const { id } = req.params;
+    const { mappings, summary } = req.body;
+
+    console.log(`确认Study ${id} 的ADaM分析结果`);
+
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study不存在'
+      });
+    }
+
+    study.CostEstimateDetails = study.CostEstimateDetails || {};
+
+    // 转换mappings为简化的 { sdtm_domain: "ADSL, ADAE" } 字符串映射（与adamAnalysis保持一致）
+    const simplifiedMappings = new Map();
+    if (mappings && typeof mappings === 'object') {
+      if (mappings instanceof Map) {
+        // 输入已是Map
+        for (const [sdtmDomain, adamDomains] of mappings) {
+          if (Array.isArray(adamDomains)) {
+            simplifiedMappings.set(sdtmDomain, adamDomains.join(', '));
+          } else if (typeof adamDomains === 'string') {
+            simplifiedMappings.set(sdtmDomain, adamDomains);
+          } else if (adamDomains != null) {
+            simplifiedMappings.set(sdtmDomain, String(adamDomains));
+          }
+        }
+      } else {
+        // 统一将对象/数组转换为值数组，便于处理如 {0:{...},1:{...}} 或 [{...},{...}]
+        const values = Array.isArray(mappings) ? mappings : Object.values(mappings);
+        const looksLikeArrayOfObjects = values.every(v => v && typeof v === 'object' && !Array.isArray(v));
+
+        if (looksLikeArrayOfObjects) {
+          // 形如 [{ sdtm_domains, adam_domains }] 或 {0:{...}}
+          for (const item of values) {
+            const sdtmDomainName = String(item.sdtm_domains || item.sdtm_domain || item.name || item.key || '').trim();
+            let adamDomainsRaw = item.adam_domains; // 🔥 主要字段名
+            if (adamDomainsRaw == null) adamDomainsRaw = item.domains;
+            if (adamDomainsRaw == null) adamDomainsRaw = item.domain;
+            if (adamDomainsRaw == null) adamDomainsRaw = item.value;
+            if (adamDomainsRaw == null) adamDomainsRaw = item.values;
+
+            let adamDomainsStr = '';
+            if (Array.isArray(adamDomainsRaw)) {
+              adamDomainsStr = adamDomainsRaw.join(', ');
+            } else if (typeof adamDomainsRaw === 'string') {
+              adamDomainsStr = adamDomainsRaw;
+            } else if (adamDomainsRaw != null) {
+              adamDomainsStr = String(adamDomainsRaw);
+            }
+
+            if (sdtmDomainName && adamDomainsStr) {
+              simplifiedMappings.set(sdtmDomainName, adamDomainsStr);
+            }
+          }
+        } else {
+          // 形如 { 'DM': 'ADSL' } 的简单对象
+          Object.entries(mappings).forEach(([sdtmDomain, adamDomains]) => {
+            if (!sdtmDomain) return;
+            if (Array.isArray(adamDomains)) {
+              simplifiedMappings.set(sdtmDomain, adamDomains.join(', '));
+            } else if (typeof adamDomains === 'string') {
+              simplifiedMappings.set(sdtmDomain, adamDomains);
+            } else if (adamDomains != null) {
+              simplifiedMappings.set(sdtmDomain, String(adamDomains));
+            }
+          });
+        }
+      }
+    }
+
+    // 更新用户确认的ADaM数据（嵌套路径）
+    study.CostEstimateDetails.userConfirmedAdam = {
+      success: true, // 🔥 新增：设置用户确认成功标志
+      mappings: simplifiedMappings,
+      summary,
+      confirmedAt: new Date()
+    };
+    
+    // 🔥 设置状态为ADaM用户确认完成
+    study.CostEstimateDetails.sdtmAnalysisStatus = 'user_confirmed_adam_done';
+
+    // 同步生成并保存ADaM成本估算快照（基于确认后的summary）
+    try {
+      const adamSummary = summary || {};
+      const highCount = Number(adamSummary?.highComplexityAdam?.count || 0);
+      const mediumCount = Number(adamSummary?.mediumComplexityAdam?.count || 0);
+      const totalAdamDomains = Number(adamSummary?.total_adam_domains || 0);
+
+      const rates = { costPerHour: 1 };
+      const hoursPerUnit = {
+        // ADaM任务的时间单位（基于项目需求调整）
+        adamSpecsHigh: 4,           // ADaM Dataset Specs (High Complexity)
+        adamSpecsMedium: 3,         // ADaM Dataset Specs (Medium Complexity)  
+        adamProdHigh: 20,           // ADaM Production and Validation: Programs and Datasets (High Complexity)
+        adamProdMedium: 12,         // ADaM Production and Validation: Programs and Datasets (Medium Complexity)
+        adamPinnacle21: 8,          // ADaM Pinnacle 21 Report Creation and Review
+        adamReviewersGuide: 40,     // ADaM Reviewer's Guide
+        adamDefineXml: 40,          // ADaM Define.xml
+        adamXptConversion: 0.3,     // ADaM Dataset Program xpt Conversion and Review
+        adamTxtConversion: 0.2      // ADaM Program txt Conversion and Review (新增)
+      };
+
+      const units = {
+        adamSpecsHigh: highCount,
+        adamSpecsMedium: mediumCount,
+        adamProdHigh: highCount,
+        adamProdMedium: mediumCount,
+        adamPinnacle21: 2,
+        adamReviewersGuide: 1,
+        adamDefineXml: 1,
+        adamXptConversion: totalAdamDomains,
+        adamTxtConversion: totalAdamDomains  // 新增：与xpt转换相同的数量
+      };
+
+      const estimatedCosts = {};
+      Object.keys(units).forEach(key => {
+        const unit = Number(units[key] || 0);
+        const cpu = rates.costPerHour * Number(hoursPerUnit[key] || 0);
+        estimatedCosts[key] = Number((unit * cpu).toFixed(2));
+      });
+
+      const subtotal = Object.values(estimatedCosts).reduce((acc, v) => acc + Number(v || 0), 0);
+
+      // 🔥 生成ADaM Notes信息（具体域列表）
+      const highDomains = summary?.highComplexityAdam?.domains || [];
+      const mediumDomains = summary?.mediumComplexityAdam?.domains || [];
+      const allAdamDomains = summary?.unique_adam_domains || [];
+      
+      const notes = {
+        adamSpecsHigh: highDomains.join('/'),
+        adamSpecsMedium: mediumDomains.join('/'),
+        adamXptConversion: allAdamDomains.join('/'),
+        adamTxtConversion: allAdamDomains.join('/')  // 新增：与xpt转换相同的域列表
+      };
+
+      const pced = study.CostEstimateDetails;
+      const costEstimate = pced.adamTableInput || {};
+      costEstimate['ADaM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
+      costEstimate.createdAt = new Date();
+      pced.adamTableInput = costEstimate;
+      
+      console.log('💾 ADaM成本估算快照已生成并保存到adamTableInput');
+    } catch (calcErr) {
+      console.warn('⚠️ 确认后生成ADaM成本估算失败:', calcErr.message);
+    }
+
+    await study.save();
+
+    console.log('ADaM分析结果已确认并保存');
+
+    res.json({
+      success: true,
+      message: 'ADaM分析结果已确认并保存',
+      data: {
+        documentId: id,
+        confirmedAt: study.CostEstimateDetails.userConfirmedAdam.confirmedAt,
+        status: study.CostEstimateDetails.sdtmAnalysisStatus,
+        costEstimate: study.CostEstimateDetails.adamTableInput || {}
+      }
+    });
+
+  } catch (error) {
+    console.error('确认ADaM分析结果错误:', error);
+    res.status(500).json({
+      success: false,
+      message: '确认ADaM分析结果失败',
       error: error.message
     });
   }
@@ -895,6 +1076,135 @@ async function analyzeDocumentForSdtm(req, res) {
   }
 }
 
+// ADaM分析处理函数
+async function analyzeDocumentForAdam(req, res) {
+  try {
+    const { id } = req.params;
+    const study = await Study.findById(id).lean(false);
+    
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study 不存在' });
+    }
+
+    console.log('🎯 开始ADaM分析，基于SDTM分析结果...');
+
+    // 检查SDTM分析是否完成
+    const sdtmAnalysis = study.CostEstimateDetails?.sdtmAnalysis;
+    if (!sdtmAnalysis || !sdtmAnalysis.success) {
+      return res.status(400).json({ 
+        success: false, 
+        message: '必须先完成SDTM分析才能进行ADaM分析' 
+      });
+    }
+
+    console.log('✅ SDTM分析结果验证通过，开始ADaM分析...');
+
+    // 调用ADaM分析服务
+    const adamResult = await performADaMAnalysis(sdtmAnalysis);
+    
+    console.log('🔍 [DEBUG] ADaM分析结果:', {
+      success: adamResult.success,
+      mappingsCount: adamResult.mappings?.size || 0,
+      totalDomains: adamResult.summary?.total_adam_domains || 0
+    });
+
+    // 保存ADaM分析结果到数据库
+    const latestStudy = await Study.findById(id);
+    latestStudy.CostEstimateDetails = latestStudy.CostEstimateDetails || {};
+    latestStudy.CostEstimateDetails.adamAnalysis = adamResult;
+
+    // 如果ADaM分析成功，更新状态并生成成本估算快照
+    if (adamResult.success) {
+      latestStudy.CostEstimateDetails.sdtmAnalysisStatus = 'adam_ai_analysis_done';
+      
+      // 🔥 新增：生成并保存ADaM成本估算快照
+      try {
+        const adamSummary = adamResult.summary || {};
+        const highCount = Number(adamSummary?.highComplexityAdam?.count || 0);
+        const mediumCount = Number(adamSummary?.mediumComplexityAdam?.count || 0);
+        const totalAdamDomains = Number(adamSummary?.total_adam_domains || 0);
+
+        const rates = { costPerHour: 1 };
+        const hoursPerUnit = {
+          // ADaM任务的时间单位（基于项目需求调整）
+          adamSpecsHigh: 4,           // ADaM Dataset Specs (High Complexity)
+          adamSpecsMedium: 3,         // ADaM Dataset Specs (Medium Complexity)  
+          adamProdHigh: 20,           // ADaM Production and Validation: Programs and Datasets (High Complexity)
+          adamProdMedium: 12,         // ADaM Production and Validation: Programs and Datasets (Medium Complexity)
+          adamPinnacle21: 8,          // ADaM Pinnacle 21 Report Creation and Review
+          adamReviewersGuide: 40,     // ADaM Reviewer's Guide
+          adamDefineXml: 40,          // ADaM Define.xml
+          adamXptConversion: 0.3,     // ADaM Dataset Program xpt Conversion and Review
+          adamTxtConversion: 0.2      // ADaM Program txt Conversion and Review (新增)
+        };
+
+        const units = {
+          adamSpecsHigh: highCount,
+          adamSpecsMedium: mediumCount,
+          adamProdHigh: highCount,
+          adamProdMedium: mediumCount,
+          adamPinnacle21: 2,
+          adamReviewersGuide: 1,
+          adamDefineXml: 1,
+          adamXptConversion: totalAdamDomains,
+          adamTxtConversion: totalAdamDomains  // 新增：与xpt转换相同的数量
+        };
+
+        const estimatedCosts = {};
+        Object.keys(units).forEach(key => {
+          const unit = Number(units[key] || 0);
+          const cpu = rates.costPerHour * Number(hoursPerUnit[key] || 0);
+          estimatedCosts[key] = Number((unit * cpu).toFixed(2));
+        });
+
+        const subtotal = Object.values(estimatedCosts).reduce((acc, v) => acc + Number(v || 0), 0);
+
+        // 🔥 生成ADaM Notes信息（具体域列表）
+        const highDomains = adamSummary?.highComplexityAdam?.domains || [];
+        const mediumDomains = adamSummary?.mediumComplexityAdam?.domains || [];
+        const allAdamDomains = adamSummary?.unique_adam_domains || [];
+        
+        const notes = {
+          adamSpecsHigh: highDomains.join('/'),
+          adamSpecsMedium: mediumDomains.join('/'),
+          adamXptConversion: allAdamDomains.join('/'),
+          adamTxtConversion: allAdamDomains.join('/')  // 新增：与xpt转换相同的域列表
+        };
+
+        const pced = latestStudy.CostEstimateDetails;
+        pced.adamTableInput = pced.adamTableInput || {};
+        pced.adamTableInput['ADaM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
+        pced.adamTableInput.createdAt = new Date();
+        console.log('💾 已生成并保存ADaM成本估算快照到adamTableInput');
+
+      } catch (costErr) {
+        console.warn('⚠️ 生成ADaM成本估算快照失败:', costErr.message);
+      }
+      
+      console.log('✅ ADaM分析状态已更新为: adam_ai_analysis_done');
+    }
+
+    await latestStudy.save();
+
+    console.log('✅ ADaM分析完成并保存到数据库');
+    console.log(`📊 ADaM分析结果: ${adamResult.mappings?.size || 0} 个映射, ${adamResult.summary?.unique_adam_domains?.length || 0} 个ADaM域`);
+
+    res.json({ 
+      success: true, 
+      message: 'ADaM分析完成', 
+      data: { adamAnalysis: adamResult } 
+    });
+
+  } catch (error) {
+    console.error('❌ ADaM分析失败:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'ADaM分析失败', 
+      error: error.message 
+    });
+  }
+}
+
 // 更新Excel中的Unit数据
 async function updateUnits(req, res) {
   try {
@@ -1077,11 +1387,13 @@ module.exports = {
   getDocumentContent,
   getStudyDocuments,
   confirmSDTMAnalysis,
+  confirmADaMAnalysis,
   updateProjectSelection,
   markTaskAsStarted,
   markTaskAsDone,
   markCostEstimateDone,
   analyzeDocumentForSdtm,
+  analyzeDocumentForAdam,
   updateUnits,
   deleteDocument,
   uploadAdditionalFile
