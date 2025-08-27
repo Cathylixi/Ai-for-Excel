@@ -125,9 +125,18 @@
     try{
       const form = new FormData();
       form.append('file', file);
-      // Send the correct fileType so backend stores into files.crf / files.sap
-      form.append('fileType', kind);
-      const resp = await fetch(`${API_BASE_URL}/api/documents/${currentStudyId || ''}/additional-file`, { method:'POST', body:form });
+      
+      // 🔥 使用新的专用API端点（CRF和SAP分离）
+      let apiEndpoint;
+      if (kind === 'crf') {
+        apiEndpoint = `${API_BASE_URL}/api/studies/${currentStudyId || ''}/upload-crf`;
+      } else if (kind === 'sap') {
+        apiEndpoint = `${API_BASE_URL}/api/studies/${currentStudyId || ''}/upload-sap`;
+      } else {
+        throw new Error('Invalid file type, expected crf or sap');
+      }
+      
+      const resp = await fetch(apiEndpoint, { method:'POST', body:form });
       const data = await resp.json();
       if (!resp.ok || !data?.success) throw new Error(data?.message || 'Upload failed');
       showResult(kind, file);

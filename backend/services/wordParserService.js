@@ -4,7 +4,8 @@ const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./open
 // const { performSDTMAnalysis } = require('./sdtmAnalysisService');
 
 // Word文档结构化解析函数 - 优化版（仅解析与存储，不进行SDTM分析）
-async function parseWordDocumentStructure(fileBuffer) {
+async function parseWordDocumentStructure(fileBuffer, options = {}) {
+  const { skipAssessmentSchedule = false } = options;
   try {
     console.log('🔍 开始从内存Buffer解析Word文档...');
     
@@ -66,8 +67,14 @@ async function parseWordDocumentStructure(fileBuffer) {
     console.log(`📝 优化算法解析到 ${sections.length} 个章节`);
     
     // 识别评估时间表（供后续分析使用）
-    console.log('🔍 开始AI识别评估时间表...');
-    const assessmentSchedule = await identifyAssessmentScheduleWithAI(tables);
+    let assessmentSchedule = null;
+    if (skipAssessmentSchedule) {
+      console.log('🚫 Word CRF/SAP: Skipping Assessment Schedule identification');
+      assessmentSchedule = null;
+    } else {
+      console.log('🔍 开始AI识别评估时间表...');
+      assessmentSchedule = await identifyAssessmentScheduleWithAI(tables);
+    }
     
     // 不在此处执行 SDTM 分析；延后到显式的分析步骤
     const sdtmAnalysis = null;

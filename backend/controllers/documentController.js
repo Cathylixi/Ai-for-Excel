@@ -2,7 +2,7 @@
 const Document = require('../models/documentModel');
 const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
-const { processPdfWithPypdf, formatResultForDatabase, pypdfService } = require('../services/pypdfService');
+const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService } = require('../services/pypdfService');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
 const { performADaMAnalysis } = require('../services/adamAnalysisService');
 
@@ -42,20 +42,35 @@ async function uploadDocument(req, res) {
     };
     
     try {
-                if (req.file.mimetype === 'application/pdf') {
-            // PDF simplified processing (using Python pypdf for text extraction only)
-            console.log('📄 Starting PDF simplified text extraction...');
-            const pypdfResult = await processPdfWithPypdf(req.file.buffer);
-            parseResult = await formatResultForDatabase(pypdfResult);
-            
-            console.log(`✅ PDF processing completed - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}, Sections: ${parseResult.parseInfo.sectionsCount}, Study Number: ${parseResult.studyNumber || 'Not found'}`);
+      // 🔥 检查文件类型，CRF/SAP使用专用解析逻辑
+      const isProtocol = !fileType || fileType.toLowerCase() === 'protocol';
+      
+      if (req.file.mimetype === 'application/pdf') {
+        console.log('📄 Starting PDF processing...');
+        const pypdfResult = await processPdfWithPypdf(req.file.buffer);
+        
+        if (isProtocol) {
+          // Protocol使用完整解析（包含AI）
+          parseResult = await formatResultForDatabase(pypdfResult);
+          console.log(`✅ Protocol PDF processing completed - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
+        } else {
+          // CRF/SAP使用专用解析（跳过AI）
+          parseResult = await formatResultForCrfSap(pypdfResult);
+          console.log(`✅ ${fileType.toUpperCase()} PDF processing completed (no AI) - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
+        }
                     
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        // Word (.docx) 结构化解析（使用内存Buffer）
-        console.log('📝 开始Word文档结构化解析...');
-        parseResult = await parseWordDocumentStructure(req.file.buffer);
+        console.log('📝 Starting Word document processing...');
         
-        console.log(`✅ Word解析完成 - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
+        if (isProtocol) {
+          // Protocol使用完整解析（包含AI）
+          parseResult = await parseWordDocumentStructure(req.file.buffer);
+          console.log(`✅ Protocol Word解析完成 - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
+        } else {
+          // CRF/SAP使用专用解析（跳过AI）
+          parseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true });
+          console.log(`✅ ${fileType.toUpperCase()} Word解析完成 (no AI) - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
+        }
         
       } else if (req.file.mimetype === 'application/msword') {
         // 老版本Word (.doc) - 简单处理
@@ -1331,17 +1346,13 @@ async function deleteDocument(req, res) {
   }
 }
 
-// 新增：为现有Study上传额外文件（CRF/SAP），仅记录元数据，不解析
-async function uploadAdditionalFile(req, res) {
+// 🔥 新增：为现有Study上传CRF文件，解析并存储 extractedText/sectionedText/tables（跳过 assessmentSchedule）
+async function uploadCrfFile(req, res) {
   try {
     const { id } = req.params; // Study ID
-    const { fileType } = req.body; // 'crf' | 'sap'
 
     if (!req.file) {
-      return res.status(400).json({ success: false, message: 'No file uploaded' });
-    }
-    if (!fileType || !['crf', 'sap'].includes(String(fileType).toLowerCase())) {
-      return res.status(400).json({ success: false, message: 'Invalid fileType, expected crf or sap' });
+      return res.status(400).json({ success: false, message: 'No CRF file uploaded' });
     }
 
     const study = await Study.findById(id);
@@ -1349,34 +1360,232 @@ async function uploadAdditionalFile(req, res) {
       return res.status(404).json({ success: false, message: 'Study not found' });
     }
 
-    const slotKey = String(fileType).toLowerCase();
     study.files = study.files || {};
-    study.files[slotKey] = study.files[slotKey] || {};
-    
-    // 仅保存元数据，不进行解析
-    study.files[slotKey].uploaded = true;
-    study.files[slotKey].originalName = req.file.originalname;
-    study.files[slotKey].fileSize = req.file.size;
-    study.files[slotKey].mimeType = req.file.mimetype;
-    study.files[slotKey].uploadedAt = new Date();
-    // 不解析时，保留现有的 uploadExtraction，不强制写入
+    study.files.crf = study.files.crf || {};
 
-    await study.save();
+    // 默认解析结果（当解析失败时使用降级结构）
+    let crfParseResult = {
+      extractedText: '',
+      sectionedText: [],
+      tables: [],
+      parseInfo: {
+        hasStructuredContent: false,
+        sectionsCount: 0,
+        tablesCount: 0,
+        parseMethod: 'raw-text'
+      }
+    };
+
+    // 解析CRF文件内容（PDF/Word），不进行 assessmentSchedule 识别
+    try {
+      if (req.file.mimetype === 'application/pdf') {
+        console.log('📄 开始解析CRF PDF文件...');
+        const pypdfResult = await processPdfWithPypdf(req.file.buffer);
+        crfParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用CRF专用解析
+      } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log('📝 开始解析CRF Word文档...');
+        crfParseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true }); // 🔥 CRF跳过AI
+      } else if (req.file.mimetype === 'application/msword') {
+        crfParseResult.extractedText = req.file.buffer.toString('utf8');
+        crfParseResult.parseInfo.parseMethod = 'doc-simple';
+      }
+
+      // 适配CRF：去除 assessmentSchedule 字段及相关标记
+      if (crfParseResult) {
+        const crfAdapted = {
+          extractedText: crfParseResult.extractedText || '',
+          sectionedText: Array.isArray(crfParseResult.sectionedText) ? crfParseResult.sectionedText : [],
+          tables: Array.isArray(crfParseResult.tables) ? crfParseResult.tables : [],
+          // CRF显式不保存 assessmentSchedule
+          assessmentSchedule: null,
+          parseInfo: {
+            ...(crfParseResult.parseInfo || {}),
+            hasAssessmentSchedule: false
+          }
+        };
+        crfParseResult = crfAdapted;
+      }
+
+      console.log(`✅ CRF解析完成 - 章节: ${crfParseResult.parseInfo.sectionsCount}, 表格: ${crfParseResult.parseInfo.tablesCount}`);
+    } catch (parseErr) {
+      console.warn('⚠️ CRF文档解析失败，将以基础元数据保存:', parseErr.message);
+      // 保持 crfParseResult 为默认值，继续正常上传
+    }
+
+    // 使用原子$set更新，避免并发保存互相覆盖
+    const crfUploadedAt = new Date();
+    await Study.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          'files.crf.uploaded': true,
+          'files.crf.originalName': req.file.originalname,
+          'files.crf.fileSize': req.file.size,
+          'files.crf.mimeType': req.file.mimetype,
+          'files.crf.uploadedAt': crfUploadedAt,
+          'files.crf.uploadExtraction': {
+            extractedText: crfParseResult.extractedText,
+            sectionedText: crfParseResult.sectionedText,
+            tables: crfParseResult.tables,
+            assessmentSchedule: null
+          }
+        }
+      },
+      { new: true }
+    );
 
     return res.json({
       success: true,
-      message: `Uploaded ${slotKey.toUpperCase()} successfully`,
+      message: 'Uploaded CRF successfully',
       data: {
         studyId: String(study._id),
-        fileType: slotKey,
+        fileType: 'crf',
         originalName: req.file.originalname,
         fileSize: req.file.size,
-        uploadedAt: study.files[slotKey].uploadedAt
+        uploadedAt: crfUploadedAt,
+        parseInfo: crfParseResult.parseInfo || {
+          hasStructuredContent: false,
+          sectionsCount: 0,
+          tablesCount: 0,
+          parseMethod: 'raw-text',
+          hasAssessmentSchedule: false
+        }
       }
     });
   } catch (error) {
-    console.error('uploadAdditionalFile error:', error);
-    return res.status(500).json({ success: false, message: 'Upload additional file failed', error: error.message });
+    console.error('uploadCrfFile error:', error);
+    return res.status(500).json({ success: false, message: 'Upload CRF file failed', error: error.message });
+  }
+}
+
+// 🔥 新增：为现有Study上传SAP文件，解析并存储 extractedText/sectionedText/tables（跳过 assessmentSchedule）
+async function uploadSapFile(req, res) {
+  try {
+    const { id } = req.params; // Study ID
+
+    if (!req.file) {
+      return res.status(400).json({ success: false, message: 'No SAP file uploaded' });
+    }
+
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({ success: false, message: 'Study not found' });
+    }
+
+    study.files = study.files || {};
+    study.files.sap = study.files.sap || {};
+
+    // 默认解析结果（当解析失败时使用降级结构）
+    let sapParseResult = {
+      extractedText: '',
+      sectionedText: [],
+      tables: [],
+      parseInfo: {
+        hasStructuredContent: false,
+        sectionsCount: 0,
+        tablesCount: 0,
+        parseMethod: 'raw-text'
+      }
+    };
+
+    // 解析SAP文件内容（PDF/Word），不进行 assessmentSchedule 识别
+    try {
+      if (req.file.mimetype === 'application/pdf') {
+        console.log('📄 开始解析SAP PDF文件...');
+        const pypdfResult = await processPdfWithPypdf(req.file.buffer);
+        sapParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用SAP专用解析
+      } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        console.log('📝 开始解析SAP Word文档...');
+        sapParseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true }); // 🔥 SAP跳过AI
+      } else if (req.file.mimetype === 'application/msword') {
+        sapParseResult.extractedText = req.file.buffer.toString('utf8');
+        sapParseResult.parseInfo.parseMethod = 'doc-simple';
+      }
+
+      // 适配SAP：去除 assessmentSchedule 字段及相关标记
+      if (sapParseResult) {
+        const sapAdapted = {
+          extractedText: sapParseResult.extractedText || '',
+          sectionedText: Array.isArray(sapParseResult.sectionedText) ? sapParseResult.sectionedText : [],
+          tables: Array.isArray(sapParseResult.tables) ? sapParseResult.tables : [],
+          // SAP显式不保存 assessmentSchedule
+          assessmentSchedule: null,
+          parseInfo: {
+            ...(sapParseResult.parseInfo || {}),
+            hasAssessmentSchedule: false
+          }
+        };
+        sapParseResult = sapAdapted;
+      }
+
+      console.log(`✅ SAP解析完成 - 章节: ${sapParseResult.parseInfo.sectionsCount}, 表格: ${sapParseResult.parseInfo.tablesCount}`);
+    } catch (parseErr) {
+      console.warn('⚠️ SAP文档解析失败，将以基础元数据保存:', parseErr.message);
+      // 保持 sapParseResult 为默认值，继续正常上传
+    }
+
+    // 使用原子$set更新，避免并发保存互相覆盖
+    const sapUploadedAt = new Date();
+    await Study.findByIdAndUpdate(
+      id,
+      {
+        $set: {
+          'files.sap.uploaded': true,
+          'files.sap.originalName': req.file.originalname,
+          'files.sap.fileSize': req.file.size,
+          'files.sap.mimeType': req.file.mimetype,
+          'files.sap.uploadedAt': sapUploadedAt,
+          'files.sap.uploadExtraction': {
+            extractedText: sapParseResult.extractedText,
+            sectionedText: sapParseResult.sectionedText,
+            tables: sapParseResult.tables,
+            assessmentSchedule: null
+          }
+        }
+      },
+      { new: true }
+    );
+
+    return res.json({
+      success: true,
+      message: 'Uploaded SAP successfully',
+      data: {
+        studyId: String(study._id),
+        fileType: 'sap',
+        originalName: req.file.originalname,
+        fileSize: req.file.size,
+        uploadedAt: sapUploadedAt,
+        parseInfo: sapParseResult.parseInfo || {
+          hasStructuredContent: false,
+          sectionsCount: 0,
+          tablesCount: 0,
+          parseMethod: 'raw-text',
+          hasAssessmentSchedule: false
+        }
+      }
+    });
+  } catch (error) {
+    console.error('uploadSapFile error:', error);
+    return res.status(500).json({ success: false, message: 'Upload SAP file failed', error: error.message });
+  }
+}
+
+// 🔥 保留向后兼容：通用额外文件上传（委托给专门函数）
+async function uploadAdditionalFile(req, res) {
+  const { fileType } = req.body;
+  
+  if (!fileType) {
+    return res.status(400).json({ success: false, message: 'fileType is required' });
+  }
+  
+  const lowerFileType = String(fileType).toLowerCase();
+  
+  if (lowerFileType === 'crf') {
+    return uploadCrfFile(req, res);
+  } else if (lowerFileType === 'sap') {
+    return uploadSapFile(req, res);
+  } else {
+    return res.status(400).json({ success: false, message: 'Invalid fileType, expected crf or sap' });
   }
 }
 
@@ -1396,5 +1605,7 @@ module.exports = {
   analyzeDocumentForAdam,
   updateUnits,
   deleteDocument,
-  uploadAdditionalFile
+  uploadAdditionalFile,
+  uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
+  uploadSapFile      // 🔥 新增：专门的SAP上传函数
 }; 

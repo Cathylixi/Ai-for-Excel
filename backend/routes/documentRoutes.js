@@ -15,7 +15,9 @@ const {
   analyzeDocumentForSdtm,
   analyzeDocumentForAdam,
   updateUnits,
-  uploadAdditionalFile
+  uploadAdditionalFile,
+  uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
+  uploadSapFile      // 🔥 新增：专门的SAP上传函数
 } = require('../controllers/documentController');
 
 const router = express.Router();
@@ -46,8 +48,14 @@ router.get('/documents/incomplete-estimates', listIncompleteEstimates);
 // Clinical Protocol 专用上传API
 router.post('/upload-document', upload.single('document'), uploadDocument);
 
-// 额外文件上传（CRF/SAP）到指定Study（仅保存元数据，不解析）
+// 额外文件上传（CRF/SAP）到指定Study（通用接口，向后兼容）
 router.post('/documents/:id/additional-file', upload.single('file'), uploadAdditionalFile);
+
+// 🔥 新增：专门的CRF文件上传（解析并存储 extractedText/sectionedText/tables）
+router.post('/studies/:id/upload-crf', upload.single('file'), uploadCrfFile);
+
+// 🔥 新增：专门的SAP文件上传（解析并存储 extractedText/sectionedText/tables）
+router.post('/studies/:id/upload-sap', upload.single('file'), uploadSapFile);
 
 // 触发延迟SDTM分析
 router.post('/documents/:id/analyze-sdtm', analyzeDocumentForSdtm);

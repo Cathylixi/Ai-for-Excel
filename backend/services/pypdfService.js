@@ -331,6 +331,73 @@ class PypdfService {
   }
 
   /**
+   * Format simplified pypdf result for CRF/SAP database storage (skipping Assessment Schedule)
+   * @param {Object} pypdfResult - pypdf processing result
+   * @returns {Promise<Object>} Formatted result for database (without assessmentSchedule)
+   */
+  async formatResultForCrfSap(pypdfResult) {
+    if (!pypdfResult.success) {
+      return {
+        extractedText: '',
+        studyNumber: null,
+        sectionedText: [],
+        tables: [],
+        assessmentSchedule: null, // 🔥 CRF/SAP明确不处理
+        parseInfo: {
+          hasStructuredContent: false,
+          sectionsCount: 0,
+          tablesCount: 0,
+          parseMethod: pypdfResult.processInfo?.parseMethod || 'pdfplumber-failed',
+          hasAssessmentSchedule: false,
+          totalPages: 0
+        }
+      };
+    }
+
+    // Extract Study Number and Header Pattern from text using AI (保持这个功能)
+    const aiResult = await this.extractStudyNumber(pypdfResult.text);
+    const studyNumber = aiResult.studyNumber;
+    const headerInfo = aiResult.headerInfo;
+
+    // Apply header filtering if header pattern was detected
+    let filteredText = pypdfResult.text;
+    if (headerInfo && headerInfo.hasHeader && headerInfo.headerPattern) {
+      filteredText = this.filterHeaders(pypdfResult.text, headerInfo.headerPattern);
+      console.log(`🧹 CRF/SAP Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
+    } else {
+      console.log(`📝 CRF/SAP No header pattern detected, using original text`);
+    }
+
+    // Extract sections from filtered text using multi-layer algorithm
+    const sections = this.extractSectionsFromPdf(filteredText);
+
+    // Format PDF tables for mixed database schema
+    const formattedTables = this.formatPdfTablesForDatabase(pypdfResult.tables);
+
+    // 🔥 CRF/SAP: 完全跳过 Assessment Schedule 识别和 SDTM procedures 提取
+    console.log('🚫 CRF/SAP: Skipping Assessment Schedule identification');
+
+    return {
+      extractedText: filteredText,
+      studyNumber,
+      sectionedText: sections,
+      tables: formattedTables,
+      assessmentSchedule: null, // 🔥 CRF/SAP明确设为null
+      sdtmAnalysis: null,       // 🔥 CRF/SAP明确设为null
+      parseInfo: {
+        hasStructuredContent: sections.length > 0,
+        sectionsCount: sections.length,
+        tablesCount: formattedTables.length,
+        parseMethod: pypdfResult.processInfo?.parseMethod || 'pdfplumber-crf-sap',
+        hasAssessmentSchedule: false, // 🔥 CRF/SAP明确设为false
+        totalPages: pypdfResult.total_pages,
+        processingTime: pypdfResult.processInfo?.processingTime || 0,
+        headerFiltered: headerInfo ? headerInfo.hasHeader : false
+      }
+    };
+  }
+
+  /**
    * Format PDF tables for mixed database schema (Word/PDF compatibility)
    * @param {Array} pdfTables - Raw tables from pdfplumber
    * @returns {Array} Formatted tables for database storage
@@ -1318,5 +1385,7 @@ const pypdfService = new PypdfService();
 module.exports = {
   pypdfService,
   processPdfWithPypdf: (fileBuffer) => pypdfService.processPdfWithPypdf(fileBuffer),
-  formatResultForDatabase: (pypdfResult) => pypdfService.formatResultForDatabase(pypdfResult)
+  formatResultForDatabase: (pypdfResult) => pypdfService.formatResultForDatabase(pypdfResult),
+  // 🔥 新增：CRF/SAP专用格式化函数（跳过Assessment Schedule识别）
+  formatResultForCrfSap: (pypdfResult) => pypdfService.formatResultForCrfSap(pypdfResult)
 };
