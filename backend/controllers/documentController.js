@@ -4,7 +4,7 @@ const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
 const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService } = require('../services/pypdfService');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
-const { performADaMAnalysis } = require('../services/adamAnalysisService');
+const { performADaMAnalysis, generateOutputsFromDomains } = require('../services/adamAnalysisService');
 
 
 // 上传文档处理函数（Study-level with file slots）
@@ -45,13 +45,13 @@ async function uploadDocument(req, res) {
       // 🔥 检查文件类型，CRF/SAP使用专用解析逻辑
       const isProtocol = !fileType || fileType.toLowerCase() === 'protocol';
       
-      if (req.file.mimetype === 'application/pdf') {
+                if (req.file.mimetype === 'application/pdf') {
         console.log('📄 Starting PDF processing...');
-        const pypdfResult = await processPdfWithPypdf(req.file.buffer);
+            const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         
         if (isProtocol) {
           // Protocol使用完整解析（包含AI）
-          parseResult = await formatResultForDatabase(pypdfResult);
+            parseResult = await formatResultForDatabase(pypdfResult);
           console.log(`✅ Protocol PDF processing completed - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
         } else {
           // CRF/SAP使用专用解析（跳过AI）
@@ -64,7 +64,7 @@ async function uploadDocument(req, res) {
         
         if (isProtocol) {
           // Protocol使用完整解析（包含AI）
-          parseResult = await parseWordDocumentStructure(req.file.buffer);
+        parseResult = await parseWordDocumentStructure(req.file.buffer);
           console.log(`✅ Protocol Word解析完成 - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
         } else {
           // CRF/SAP使用专用解析（跳过AI）
@@ -112,7 +112,9 @@ async function uploadDocument(req, res) {
       extractedText: parseResult.extractedText,
       sectionedText: parseResult.sectionedText,
       tables: parseResult.tables,
-      assessmentSchedule: parseResult.assessmentSchedule
+      assessmentSchedule: parseResult.assessmentSchedule,
+      // 仅在Protocol时保存 endpoints
+      endpoints: slotKey === 'protocol' ? (parseResult.endpoints || []) : undefined
     };
 
     // Write partial sdtm procedures (PDF path) into CostEstimateDetails at study level
@@ -354,9 +356,13 @@ async function getDocumentContent(req, res) {
           extractedText: ex.extractedText || null,
           sections: ex.sectionedText || [],
           tables: ex.tables || [],
-          assessmentSchedule: ex.assessmentSchedule || null
+          assessmentSchedule: ex.assessmentSchedule || null,
+          endpoints: Array.isArray(ex.endpoints) ? ex.endpoints : []
           // Note: internalLinks removed in simplified PDF version
-        }
+        },
+        
+        // 🔥 新增：可追溯性数据
+        traceability: study.traceability || {}
       }
     });
     
@@ -1589,6 +1595,193 @@ async function uploadAdditionalFile(req, res) {
   }
 }
 
+// 🔥 新增：根据确认的ADaM域生成TFL(Tables, Figures, Listings)清单并存储在traceability中
+async function generateAdamToOutputTraceability(req, res) {
+  try {
+    const { id } = req.params; // Study ID
+    
+    console.log('🎯 开始生成ADaM到输出的可追溯性数据...');
+    
+    // 1. 获取Study并提取已确认的ADaM域
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+    
+    // 🔥 调试：检查完整的数据路径
+    console.log('🔍 [DEBUG] CostEstimateDetails:', study.CostEstimateDetails);
+    console.log('🔍 [DEBUG] userConfirmedAdam:', study.CostEstimateDetails?.userConfirmedAdam);
+    console.log('🔍 [DEBUG] userConfirmedAdam.summary:', study.CostEstimateDetails?.userConfirmedAdam?.summary);
+    
+    const adamDomains = study.CostEstimateDetails?.userConfirmedAdam?.summary?.unique_adam_domains;
+    console.log('🔍 [DEBUG] 提取到的adamDomains:', adamDomains);
+    
+    if (!adamDomains || adamDomains.length === 0) {
+      console.error('❌ 没有找到确认的ADaM域数据');
+      return res.status(400).json({
+        success: false,
+        message: 'No confirmed ADaM domains found. Please complete ADaM analysis first.'
+      });
+    }
+    
+    console.log(`📊 找到 ${adamDomains.length} 个已确认的ADaM域:`, adamDomains);
+    
+    // 🔥 阶段1：初始化TFL生成状态为 success: false
+    const initializePayload = {
+      'traceability.TFL_generation_adam_to_output': {
+        success: false,
+        generatedAt: new Date(),
+        source_domains: adamDomains,
+        outputs: [],
+        summary: {
+          uniqueTable: 0,
+          repeatTable: 0,
+          uniqueFigure: 0,
+          repeatFigure: 0,
+          uniqueListing: 0,
+          repeatListing: 0
+        }
+      }
+    };
+    
+    await Study.findByIdAndUpdate(id, { $set: initializePayload }, { new: true });
+    console.log('✅ 已初始化TFL生成状态 (success: false)');
+    
+    // 2. 调用AI服务生成TFL清单
+    const tflResult = await generateOutputsFromDomains(adamDomains);
+    
+    if (!tflResult.success) {
+      return res.status(500).json({
+        success: false,
+        message: tflResult.message || 'TFL generation failed'
+      });
+    }
+    
+    // 3. 统计各类型的Unique/Repeating数量
+    const summary = {
+      uniqueTable: 0,
+      repeatTable: 0,
+      uniqueFigure: 0,
+      repeatFigure: 0,
+      uniqueListing: 0,
+      repeatListing: 0
+    };
+    
+    tflResult.outputs.forEach(output => {
+      const type = output.type; // 'Table', 'Figure', 'Listing'
+      const uniqueness = output.uniqueness; // 'Unique', 'Repeating'
+      
+      if (uniqueness === 'Unique') {
+        if (type === 'Table') summary.uniqueTable++;
+        else if (type === 'Figure') summary.uniqueFigure++;
+        else if (type === 'Listing') summary.uniqueListing++;
+      } else if (uniqueness === 'Repeating') {
+        if (type === 'Table') summary.repeatTable++;
+        else if (type === 'Figure') summary.repeatFigure++;
+        else if (type === 'Listing') summary.repeatListing++;
+      }
+    });
+    
+    console.log('📈 TFL统计结果:', summary);
+    
+    // 🔥 阶段2：更新TFL生成状态为 success: true，并保存完整结果
+    const finalPayload = {
+      'traceability.TFL_generation_adam_to_output': {
+        success: true, // 🔥 标记为成功
+        generatedAt: new Date(),
+        source_domains: adamDomains,
+        outputs: tflResult.outputs,
+        summary: summary
+      }
+    };
+    
+    await Study.findByIdAndUpdate(id, { $set: finalPayload }, { new: true });
+    
+    console.log('✅ TFL可追溯性数据已成功存储到数据库 (success: true)');
+    
+    // 5. 返回成功响应
+    res.json({
+      success: true,
+      message: 'TFL traceability generated successfully',
+      data: {
+        source_domains: adamDomains,
+        outputs: tflResult.outputs,
+        summary: summary,
+        generatedAt: new Date()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 生成ADaM TFL可追溯性失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate TFL traceability',
+      error: error.message
+    });
+  }
+}
+
+// 🔥 新增：保存数据流可追溯性到数据库
+async function saveDataFlowTraceability(req, res) {
+  try {
+    const { id } = req.params; // Study ID
+    const { mappings, stage, hasSDTM, hasADaM } = req.body;
+    
+    console.log(`🔄 保存数据流可追溯性 (${stage} 阶段)...`);
+    console.log(`📊 收到 ${mappings?.length || 0} 个映射项`);
+    
+    // 1. 获取Study
+    const study = await Study.findById(id);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+    
+    // 2. 构建数据流数据
+    const dataFlowData = {
+      lastUpdated: new Date(),
+      hasSDTM: hasSDTM || false,
+      hasADaM: hasADaM || false,
+      mappings: mappings || []
+    };
+    
+    // 3. 原子性更新数据库
+    const updatePayload = {
+      'traceability.dataFlow': dataFlowData
+    };
+    
+    await Study.findByIdAndUpdate(id, { $set: updatePayload }, { new: true });
+    
+    console.log(`✅ 数据流可追溯性已保存 (${stage} 阶段)`);
+    
+    // 4. 返回成功响应
+    res.json({
+      success: true,
+      message: `Data flow traceability saved successfully (${stage} stage)`,
+      data: {
+        stage: stage,
+        mappingsCount: mappings?.length || 0,
+        hasSDTM: hasSDTM,
+        hasADaM: hasADaM,
+        lastUpdated: new Date()
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 保存数据流可追溯性失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to save data flow traceability',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   uploadDocument,
   getDocuments,
@@ -1607,5 +1800,7 @@ module.exports = {
   deleteDocument,
   uploadAdditionalFile,
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
-  uploadSapFile      // 🔥 新增：专门的SAP上传函数
+  uploadSapFile,     // 🔥 新增：专门的SAP上传函数
+  generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
+  saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 }; 

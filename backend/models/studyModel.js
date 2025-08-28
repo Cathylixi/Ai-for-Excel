@@ -50,6 +50,17 @@ const FileSlotSchema = new mongoose.Schema({
       confidence: { type: Number, min: 0, max: 1 }, // AI识别置信度
       extractedAt: { type: Date, default: Date.now }
     }
+    ,
+    // 🔥 新增：Endpoints 抽取结果（可变长度）
+    endpoints: [{
+      category: { type: String, enum: ['Primary', 'Secondary', 'Safety', 'Exploratory', 'Other'], default: 'Other' },
+      title: { type: String },
+      cleanedTitle: { type: String },
+      content: { type: String },
+      level: { type: Number },
+      sectionIndex: { type: Number },
+      extractMethod: { type: String, enum: ['ai', 'rule'], default: 'ai' }
+    }]
   }
 }, { _id: false });
 
@@ -151,6 +162,43 @@ const StudySchema = new mongoose.Schema({
 
   CostEstimateDetails: { type: CostEstimateDetailsSchema, default: {} },
   SasAnalysisDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+  // 🔥 新增：可追溯性数据
+  traceability: {
+    TFL_generation_adam_to_output: {
+      success: { type: Boolean, default: false }, // 🔥 新增：TFL生成状态标记
+      generatedAt: { type: Date },
+      source_domains: [{ type: String }],
+      outputs: [{
+        adamDataset: { type: String }, // 🔥 新增：对应的ADaM数据集
+        num: { type: String },
+        type: { type: String, enum: ['Table', 'Figure', 'Listing'] },
+        title: { type: String },
+        uniqueness: { type: String, enum: ['Unique', 'Repeating'] },
+        repeatOf: { type: String },
+        correspondingListing: { type: String }
+      }],
+      summary: {
+        uniqueTable: { type: Number, default: 0 },
+        repeatTable: { type: Number, default: 0 },
+        uniqueFigure: { type: Number, default: 0 },
+        repeatFigure: { type: Number, default: 0 },
+        uniqueListing: { type: Number, default: 0 },
+        repeatListing: { type: Number, default: 0 }
+      }
+    },
+    // 🔥 新增：数据流可追溯性
+    dataFlow: {
+      lastUpdated: { type: Date },
+      hasSDTM: { type: Boolean, default: false },
+      hasADaM: { type: Boolean, default: false },
+      mappings: [{
+        procedure: { type: String }, // 可能为空字符串（手动添加的SDTM域）
+        sdtmDomain: { type: String },
+        adamDataset: { type: String, default: '' } // ADaM阶段填充
+      }]
+    }
+  },
 
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }

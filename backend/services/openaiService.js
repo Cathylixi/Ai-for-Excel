@@ -425,5 +425,58 @@ ${head}`;
 module.exports = {
   identifyAssessmentScheduleWithAI,
   extractStudyNumber,
-  identifyAssessmentScheduleForPdfTables
+  identifyAssessmentScheduleForPdfTables,
+  /**
+   * Identify endpoint sections by titles only. Returns array of { index, category, cleaned_title }
+   */
+  identifyEndpoints: async function identifyEndpoints(sectionTitles) {
+    try {
+      if (!Array.isArray(sectionTitles) || sectionTitles.length === 0) return [];
+      const numbered = sectionTitles.map((t, i) => `${i}: ${t || ''}`).join('\n');
+      const prompt = `You are a clinical protocol analyst. Given an ordered list of section titles from a protocol, identify which entries correspond to study endpoints/objectives and classify each as Primary, Secondary, Safety, Exploratory or Other. Only return JSON array like: [{"index":12,"category":"Primary","cleaned_title":"Primary Endpoint"}].\n\nSECTION TITLES:\n${numbered}`;
+      const resp = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: 0.1,
+        max_tokens: 300
+      });
+      const raw = (resp.choices?.[0]?.message?.content || '').trim();
+      let json;
+      try { json = JSON.parse(raw); } catch (_) {
+        const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+        if (s >= 0 && e > s) json = JSON.parse(raw.slice(s, e + 1)); else json = [];
+      }
+      // Normalize category
+      const norm = (c) => {
+        const x = String(c || '').toLowerCase();
+        if (x.includes('primary')) return 'Primary';
+        if (x.includes('secondary')) return 'Secondary';
+        if (x.includes('safety')) return 'Safety';
+        if (x.includes('explor')) return 'Exploratory';
+        return 'Other';
+      };
+      return (Array.isArray(json) ? json : []).map(it => ({
+        index: Number(it.index),
+        category: norm(it.category),
+        cleaned_title: String(it.cleaned_title || sectionTitles[it.index] || '').replace(/^\s*\d+(?:\.\d+)*\s*[\)\-\:]?\s*/,'').trim()
+      })).filter(it => Number.isInteger(it.index) && it.index >= 0 && it.index < sectionTitles.length);
+    } catch (e) {
+      console.warn('identifyEndpoints AI failed, falling back to rules:', e.message);
+      // Rule-based fallback
+      const results = [];
+      (sectionTitles || []).forEach((title, idx) => {
+        const t = String(title || '');
+        const low = t.toLowerCase();
+        const isEndpoint = /(endpoint|objective|efficacy)/i.test(t);
+        if (!isEndpoint) return;
+        let category = 'Other';
+        if (low.includes('primary')) category = 'Primary';
+        else if (low.includes('secondary')) category = 'Secondary';
+        else if (low.includes('safety')) category = 'Safety';
+        else if (low.includes('explor')) category = 'Exploratory';
+        results.push({ index: idx, category, cleaned_title: t.replace(/^\s*\d+(?:\.\d+)*\s*[\)\-\:]?\s*/,'').trim() });
+      });
+      return results;
+    }
+  }
 }; 

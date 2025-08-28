@@ -267,7 +267,143 @@ async function performADaMAnalysis(sdtmAnalysisResult) {
   }
 }
 
+/**
+ * 根据确认的ADaM域生成TFL(Tables, Figures, Listings)清单
+ * @param {Array} adamDomains - 用户确认的ADaM域列表
+ * @returns {Object} 包含outputs数组的结果
+ */
+async function generateOutputsFromDomains(adamDomains) {
+  try {
+    console.log('🎯 开始根据ADaM域生成TFL清单...');
+    
+    if (!adamDomains || adamDomains.length === 0) {
+      return {
+        success: false,
+        message: '没有ADaM域可供分析',
+        outputs: []
+      };
+    }
+    
+    // 构建提示词
+    const domainsText = adamDomains.map((d, i) => `${i + 1}. ${d}`).join('\n');
+    
+    const prompt = `You are a clinical trial biostatistician. I have a list of ADaM datasets. Please analyze which outputs (tables, figures, listings) we need to summarize all those ADaM.
+
+🔥 CRITICAL REQUIREMENT: Please go through all the ADaM datasets in the list and consider which outputs can be generated from each of them. Please analyze based on the ICH E3 guideline, as the outputs are used to generate the Clinical Study Reports.
+
+🔥 MAPPING AND UNIQUENESS RULES:
+
+1. Provide the number and title for each outputs. - Table and Figure number should start from 14.x, 14.1 is demographic data related, 14.2 is efficacy data related, 14.3 is safety data related, etc. - Listing number should start from 16.x
+2. Assess uniqueness for each outputs: - Unique outputs: The programming code for that output need to be generated from scratch - Repeating outputs: The layout is similar as the unique outputs. The programming code does not need to be generated from scratch, but can use the unique output code to simply change the condition. For example, the same table for different laboratory test category, the same table for AE/SAE/AE leading to death summary.
+3. Correspondence between outputs - Each table must have corresponding listing - Table and figure do not have a one-to-one correspondence - For the solid tumor oncology trial, must include waterfall plot, simmer lane plot and spider plot. If there are ADTTE domain, must include KM plot for the time-to-event end point.
+
+ADaM Datasets:
+${domainsText}
+
+Please return ONLY valid JSON in the following format:
+{
+  "outputs": [
+    {
+      "adamDataset": "ADSL",
+      "num": "14.1.1",
+      "type": "Table",
+      "title": "Demographics and Baseline Characteristics",
+      "uniqueness": "Unique",
+      "correspondingListing": "16.1.1"
+    },
+    {
+      "adamDataset": "ADRS",
+      "num": "14.2.1",
+      "type": "Table", 
+      "title": "Best Overall Response (BOR)",
+      "uniqueness": "Unique",
+      "correspondingListing": "16.1.11"
+    }
+  ]
+}`;
+
+    console.log('🤖 调用OpenAI生成TFL清单...');
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4",
+      messages: [
+        {
+          role: "user",
+          content: prompt
+        }
+      ],
+      max_tokens: 3000,
+      temperature: 0.2
+    });
+
+    const responseText = response.choices[0].message.content.trim();
+    console.log('🔍 [DEBUG] AI返回TFL内容:', responseText);
+
+    // 解析JSON响应（复用现有的健壮解析逻辑）
+    function extractJson(text) {
+      try { return JSON.parse(text); } catch (_) {}
+      const codeJson = text.match(/```json[\s\S]*?```/i);
+      if (codeJson && codeJson[0]) {
+        const inner = codeJson[0].replace(/```json/i, '').replace(/```/g, '').trim();
+        try { return JSON.parse(inner); } catch (_) {}
+      }
+      const codeAny = text.match(/```[\s\S]*?```/);
+      if (codeAny && codeAny[0]) {
+        const inner = codeAny[0].replace(/```/g, '').trim();
+        try { return JSON.parse(inner); } catch (_) {}
+      }
+      const first = text.indexOf('{');
+      const last = text.lastIndexOf('}');
+      if (first !== -1 && last !== -1 && last > first) {
+        const inner = text.slice(first, last + 1);
+        try { return JSON.parse(inner); } catch (_) {}
+      }
+      return null;
+    }
+
+    let result = extractJson(responseText);
+    if (!result || !result.outputs || !Array.isArray(result.outputs)) {
+      console.error('❌ TFL JSON解析失败: AI响应不是有效JSON');
+      return {
+        success: false,
+        message: 'TFL分析结果解析失败',
+        outputs: []
+      };
+    }
+
+    // 验证和清理输出数据
+    const validOutputs = result.outputs.filter(output => {
+      return output.num && output.type && output.title && output.uniqueness;
+    }).map(output => ({
+      adamDataset: String(output.adamDataset || ''), // 🔥 新增：ADaM数据集字段
+      num: String(output.num || ''),
+      type: String(output.type || ''),
+      title: String(output.title || ''),
+      uniqueness: String(output.uniqueness || ''),
+      repeatOf: output.repeatOf ? String(output.repeatOf) : undefined,
+      correspondingListing: output.correspondingListing ? String(output.correspondingListing) : undefined
+    }));
+
+    console.log(`✅ TFL生成完成 - 共 ${validOutputs.length} 个输出项`);
+    
+    return {
+      success: true,
+      outputs: validOutputs,
+      generatedAt: new Date()
+    };
+    
+  } catch (error) {
+    console.error('❌ TFL生成失败:', error);
+    return {
+      success: false,
+      message: error.message || 'TFL生成暂时不可用',
+      outputs: []
+    };
+  }
+}
+
 module.exports = {
   analyzeADaMMappings,
-  performADaMAnalysis
+  performADaMAnalysis,
+  generateOutputsFromDomains
 };

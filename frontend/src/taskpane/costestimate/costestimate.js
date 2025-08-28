@@ -1303,6 +1303,23 @@ function bindADaMButtonEvents() {
   } else {
     console.error('❌ 找不到 confirm-adam-mappings-btn 元素');
   }
+  
+  // 🔥 新增：绑定TFL生成按钮事件
+  const generateTflBtn = document.getElementById('generate-tfl-btn');
+  if (generateTflBtn) {
+    generateTflBtn.onclick = () => {
+      console.log('🔍 [DEBUG] Generate TFL Plan按钮被点击');
+      try {
+        window.CostEstimateModule.generateAdamOutputs();
+      } catch (error) {
+        console.error('❌ TFL生成按钮处理出错:', error);
+        moduleConfig.showStatusMessage('TFL generation button error: ' + error.message, 'error');
+      }
+    };
+    console.log('✅ TFL生成按钮事件已绑定');
+  } else {
+    console.warn('⚠️ 找不到 generate-tfl-btn 元素（可能尚未显示）');
+  }
 }
 
 // 🔥 绑定SDTM按钮事件的独立函数
@@ -1598,7 +1615,18 @@ async function confirmSDTMAnalysis() {
     }
 
     // 🔥 修改：不自动跳转，让用户通过底部蓝色Next按钮手动跳转
-            console.log('✅ SDTM分析已确认，用户可以点击Next按钮继续到Step 6 (ADaM分析)');
+    console.log('✅ SDTM分析已确认，开始创建数据流表格...');
+    
+    // 🔥 自动创建SDTM数据流表格
+    try {
+      await createSDTMDataFlowSheet();
+      console.log('✅ SDTM数据流表格创建完成');
+    } catch (dataFlowError) {
+      console.error('❌ 创建SDTM数据流表格失败:', dataFlowError);
+      // 不阻断主流程，仅记录错误
+    }
+    
+    console.log('✅ 用户可以点击Next按钮继续到Step 6 (ADaM分析)');
 
   } catch (error) {
     console.error('❌ 确认SDTM分析时出错:', error);
@@ -1616,8 +1644,13 @@ async function confirmADaMAnalysis() {
     toggleADaMEditMode(); // 这会将编辑的数据保存并退出编辑模式
   }
   
-  // 收集当前显示的ADaM映射数据（包括用户编辑的）
-  const updatedMappings = collectCurrentADaMMappings();
+      // 收集当前显示的ADaM映射数据（包括用户编辑的）
+    const updatedMappings = collectCurrentADaMMappings();
+    
+    // 🔥 调试：检查ADaM数据结构
+    console.log('🔍 [DEBUG] window.currentADaMData:', window.currentADaMData);
+    console.log('🔍 [DEBUG] summary数据:', window.currentADaMData?.summary);
+    console.log('🔍 [DEBUG] unique_adam_domains:', window.currentADaMData?.summary?.unique_adam_domains);
   console.log('🔍 [DEBUG] 收集到的更新ADaM映射:', updatedMappings);
   
   const currentDocumentId = moduleConfig.getCurrentDocumentId();
@@ -1661,6 +1694,9 @@ async function confirmADaMAnalysis() {
 
     const result = await response.json();
     console.log('✅ ADaM分析已确认:', result);
+    
+    // 🔥 显示第一阶段成功提示（持久显示，直到TFL生成完成）
+    moduleConfig.showStatusMessage('✅ Successfully saved, waiting for TFL generation...', 'success', { persist: true });
     
     // 更新全局ADaM数据（包含用户编辑后的映射）
     window.currentADaMData = {
@@ -1706,12 +1742,137 @@ async function confirmADaMAnalysis() {
       }
     }
 
-    // 🔥 修改：不自动跳转，让用户通过底部蓝色Next按钮手动跳转
-    console.log('✅ ADaM分析已确认，用户可以点击Next按钮继续到Step 7 (完成)');
+    // 🔥 修改：ADaM确认成功后串行生成TFL计划和数据流表格
+    console.log('✅ ADaM分析已确认，开始生成TFL计划和数据流表格...');
+    
+    // 🔥 优化：缩短等待时间
+    await new Promise(resolve => setTimeout(resolve, 200)); // 等待200ms
+    
+    try {
+      // 🔥 修复：串行执行，避免Excel工作表冲突
+      console.log('🔄 步骤1：生成TFL计划（包含Unit写入）...');
+      await generateAdamOutputs();
+      console.log('✅ TFL计划生成完成，Unit已写入');
+      
+      // 🔥 TFL生成完成：先隐藏持久提示，再显示完成提示（短暂显示）
+      if (typeof window.TaskPaneController?.showStatusMessage === 'function') {
+        // 兼容直接调用
+      }
+      if (typeof window.hideStatusMessage === 'function') {
+        window.hideStatusMessage();
+      } else if (typeof moduleConfig.hideStatusMessage === 'function') {
+        moduleConfig.hideStatusMessage();
+      }
+      moduleConfig.showStatusMessage('✅ TFL generation completed! Now updating Data Flow...', 'success');
+      
+      console.log('🔄 步骤2：更新数据流表格...');
+      await updateADaMDataFlowSheet();
+      console.log('✅ 数据流表格更新完成');
+      
+      // 🔥 最终成功提示（覆盖前一条短暂提示）
+      moduleConfig.showStatusMessage("🎯 TFL & Data Flow generation success! Check Excel sheets.", 'success');
+      
+    } catch (error) {
+      console.error('❌ 生成失败:', error);
+      
+      // 检查是哪个任务失败了
+      if (error.message && error.message.includes('data flow')) {
+        moduleConfig.showStatusMessage('Data Flow generation failed: ' + error.message, 'error');
+      } else {
+        moduleConfig.showStatusMessage('TFL generation failed: ' + error.message, 'error');
+      }
+    }
+    
+    console.log('✅ 用户可以点击Next按钮继续到Step 7 (完成)');
 
   } catch (error) {
     console.error('❌ 确认ADaM分析时出错:', error);
     moduleConfig.showStatusMessage('Failed to confirm ADaM analysis: ' + error.message, 'error');
+  }
+}
+
+// 🔥 新增：生成ADaM TFL(Tables, Figures, Listings)计划
+async function generateAdamOutputs() {
+  try {
+    console.log('🎯 开始生成ADaM TFL计划...');
+    
+    const currentStudyId = moduleConfig.getCurrentDocumentId();
+    if (!currentStudyId) {
+      moduleConfig.showStatusMessage('No study ID found. Please upload a protocol first.', 'error');
+      return;
+    }
+    
+    // 显示生成状态
+    const tflStatusDiv = document.getElementById('tfl-status');
+    const tflSuccessDiv = document.getElementById('tfl-success');
+    const generateBtn = document.getElementById('generate-tfl-btn');
+    
+    if (tflStatusDiv) tflStatusDiv.style.display = 'flex';
+    if (tflSuccessDiv) tflSuccessDiv.style.display = 'none';
+    if (generateBtn) generateBtn.disabled = true;
+    
+    console.log('📡 调用后端生成TFL计划 API...');
+    console.log('🔍 [DEBUG] 请求的Study ID:', currentStudyId);
+    
+    // 调用后端API生成TFL计划
+    const response = await fetch(`${API_BASE_URL}/api/studies/${currentStudyId}/generate-adam-outputs`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    const result = await response.json();
+    
+    if (!response.ok || !result.success) {
+      throw new Error(result.message || 'Failed to generate TFL plan');
+    }
+    
+    console.log('✅ TFL计划生成成功:', result.data);
+    
+    // 隐藏加载状态，显示成功状态
+    if (tflStatusDiv) tflStatusDiv.style.display = 'none';
+    if (tflSuccessDiv) {
+      tflSuccessDiv.style.display = 'flex';
+      tflSuccessDiv.style.alignItems = 'center';
+      tflSuccessDiv.style.gap = '8px';
+    }
+    
+    // 显示生成的统计信息
+    const summaryInfo = result.data.summary;
+    const successMessage = `TFL plan generated: ${summaryInfo.uniqueTable} unique + ${summaryInfo.repeatTable} repeat tables, ${summaryInfo.uniqueFigure} unique + ${summaryInfo.repeatFigure} repeat figures, ${summaryInfo.uniqueListing} unique + ${summaryInfo.repeatListing} repeat listings.`;
+    
+    if (tflSuccessDiv) {
+      const span = tflSuccessDiv.querySelector('span');
+      if (span) {
+        span.textContent = successMessage;
+      }
+    }
+    
+    // TFL成功提示已移至上一级调用函数中，避免重复
+    
+    // TODO: 这里将来可以实现Excel写入逻辑（阶段4）
+    console.log('📋 TFL输出详细列表:', result.data.outputs);
+    
+    // 🔥 新增：将TFL写入Excel的"TFL Plan"工作表
+    try {
+      await writeTFLToExcel(result.data.outputs);
+    } catch (e) {
+      console.error('⚠️ 写入TFL到Excel时发生非致命错误:', e);
+    }
+    
+  } catch (error) {
+    console.error('❌ 生成TFL计划失败:', error);
+    
+    // 隐藏加载状态
+    const tflStatusDiv = document.getElementById('tfl-status');
+    if (tflStatusDiv) tflStatusDiv.style.display = 'none';
+    
+    moduleConfig.showStatusMessage('Failed to generate TFL plan: ' + error.message, 'error');
+  } finally {
+    // 重新启用按钮
+    const generateBtn = document.getElementById('generate-tfl-btn');
+    if (generateBtn) generateBtn.disabled = false;
   }
 }
 
@@ -1816,7 +1977,7 @@ async function applySDTMUnitsAndCostsToExcel(snapshot) {
 
       // 🧮 更新Grand Total公式（SDTM确认后）
       await updateGrandTotalFormula(sheet);
-      
+
       await context.sync();
       // moduleConfig.showStatusMessage('Units, estimated costs and subtotal applied from confirmed SDTM data.', 'success');
     });
@@ -2385,6 +2546,33 @@ function getStep6HTML() {
           <i class="ms-Icon ms-Icon--CheckMark"></i>
           <span>ADaM Analysis Confirmed and Saved</span>
         </div>
+        
+        <!-- 🔥 新增：TFL生成按钮区域 -->
+        <div class="tfl-generation-section" id="tfl-generation-section" style="display: none; margin-top: 20px;">
+          <div class="section-header">
+            <h4 class="ms-font-m">📋 Tables, Figures & Listings (TFL) Plan</h4>
+            <p class="ms-font-s">Generate a comprehensive list of required outputs based on your confirmed ADaM domains.</p>
+          </div>
+          <div class="tfl-actions">
+            <button class="ms-Button ms-Button--primary" id="generate-tfl-btn">
+              <span class="ms-Button-label">🎯 Generate TFL Plan</span>
+            </button>
+          </div>
+          
+          <!-- TFL生成状态显示 -->
+          <div class="tfl-status" id="tfl-status" style="display: none; margin-top: 15px;">
+            <div class="ms-Spinner">
+              <div class="ms-Spinner-circle ms-Spinner-circle--medium"></div>
+            </div>
+            <span class="ms-font-s">Generating TFL plan based on your ADaM domains...</span>
+          </div>
+          
+          <!-- TFL生成成功状态 -->
+          <div class="tfl-success" id="tfl-success" style="display: none; margin-top: 15px;">
+            <i class="ms-Icon ms-Icon--CheckMark" style="color: #107c10;"></i>
+            <span class="ms-font-s" style="color: #107c10;">TFL plan generated successfully and saved to database!</span>
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -2409,7 +2597,7 @@ function getStep7HTML() {
 
       </div>
     </div>
-`;
+  `;
 }
 
 // 动态插入CostEstimate HTML内容
@@ -2943,6 +3131,9 @@ if (typeof window !== 'undefined') {
     makeADaMItemEditable, // 🔥 新增ADaM编辑功能
     makeADaMItemReadOnly, // 🔥 新增ADaM只读功能
     bindADaMButtonEvents, // 🔥 新增ADaM按钮绑定函数
+    generateAdamOutputs, // 🔥 新增：TFL生成函数
+    createSDTMDataFlowSheet, // 🔥 新增：SDTM数据流表格创建函数
+    updateADaMDataFlowSheet, // 🔥 新增：ADaM数据流表格更新函数
     saveExcelChangesToDatabase, // 🔥 新增Excel自动保存
     resetToStart,
     saveExcelToLocal,
@@ -2961,6 +3152,426 @@ if (typeof window !== 'undefined') {
   window.toggleADaMEditMode = toggleADaMEditMode; // 🔥 新增：暴露ADaM编辑模式切换函数
   window.makeADaMItemEditable = makeADaMItemEditable; // 🔥 新增：暴露ADaM编辑功能
   window.makeADaMItemReadOnly = makeADaMItemReadOnly; // 🔥 新增：暴露ADaM只读功能
+  window.generateAdamOutputs = generateAdamOutputs; // 🔥 新增：暴露TFL生成函数
+}
+
+// 🔥 新增：创建SDTM数据流可追溯性表（阶段1：Procedure → SDTM）
+async function createSDTMDataFlowSheet() {
+  try {
+    console.log('🔄 开始创建SDTM数据流表格...');
+    
+    // 1. 等待数据库同步（优化为200ms）
+    await new Promise(resolve => setTimeout(resolve, 200));
+    
+    // 2. 获取当前SDTM数据
+    if (!window.currentSDTMData || !window.currentSDTMData.summary) {
+      console.warn('⚠️ 没有有效的SDTM数据，跳过数据流表格创建');
+      return;
+    }
+    
+    // 3. 构建数据流映射数据
+    const dataFlowMappings = buildSDTMDataFlowData();
+    
+    // 4. 创建Excel表格
+    await createExcelDataFlowSheet(dataFlowMappings, false); // false = 只有SDTM列
+    
+    // 5. 保存到数据库
+    await saveDataFlowToDatabase(dataFlowMappings, 'sdtm');
+    
+    console.log('✅ SDTM数据流表格创建完成');
+    
+  } catch (error) {
+    console.error('❌ 创建SDTM数据流表格失败:', error);
+    moduleConfig.showStatusMessage('Failed to create data flow sheet: ' + error.message, 'error');
+  }
+}
+
+// 🔥 构建SDTM数据流映射数据
+function buildSDTMDataFlowData() {
+  const dataFlowMappings = [];
+  const currentSDTMData = window.currentSDTMData;
+  
+  // 🔥 调试：打印完整的数据结构
+  console.log('🔍 调试 currentSDTMData 完整结构:', JSON.stringify(currentSDTMData, null, 2));
+  console.log('🔍 调试 currentSDTMData.mappings 类型:', typeof currentSDTMData?.mappings);
+  console.log('🔍 调试 currentSDTMData.mappings 内容:', currentSDTMData?.mappings);
+  
+  // 1. 从确认的映射关系中获取数据（有procedure对应的）
+  // 🔥 标准化：兼容 Map / Object / Array-of-Objects 三种结构
+  if (currentSDTMData && currentSDTMData.mappings) {
+    const mappings = currentSDTMData.mappings;
+    let producedAny = false;
+
+    // 情况A：Map (例如 Map(16) { 'Informed Consent (IC)' => 'DM', ... })
+    if (typeof mappings === 'object' && typeof mappings.get === 'function' && typeof mappings.entries === 'function') {
+      console.log('🔍 mappings是Map，开始处理...');
+      for (const [procedure, sdtmDomain] of mappings.entries()) {
+        console.log(`🔍 处理映射(Map): "${procedure}" → "${sdtmDomain}"`);
+        if (procedure && sdtmDomain) {
+          dataFlowMappings.push({
+            procedure: String(procedure),
+            sdtmDomain: Array.isArray(sdtmDomain) ? String(sdtmDomain[0]) : String(sdtmDomain),
+            adamDataset: ''
+          });
+          producedAny = true;
+        }
+      }
+    }
+
+    // 情况B：Array-of-Objects ([{ procedure, sdtm_domains }])
+    if (!producedAny && Array.isArray(mappings)) {
+      console.log('🔍 mappings是Array-of-Objects，开始处理...');
+      mappings.forEach(item => {
+        const procedure = item?.procedure;
+        const sdtmDomains = Array.isArray(item?.sdtm_domains) ? item.sdtm_domains : [item?.sdtm_domains].filter(Boolean);
+        sdtmDomains.forEach(domain => {
+          if (procedure && domain) {
+            console.log(`🔍 处理映射(Array): "${procedure}" → "${domain}"`);
+            dataFlowMappings.push({
+              procedure: String(procedure),
+              sdtmDomain: String(domain),
+              adamDataset: ''
+            });
+            producedAny = true;
+          }
+        });
+      });
+    }
+
+    // 情况C：Plain Object ({ "Procedure": "SDTM" })
+    if (!producedAny && typeof mappings === 'object' && mappings !== null) {
+      console.log('🔍 mappings是Plain Object，开始处理...');
+      Object.entries(mappings).forEach(([procedure, sdtmDomain]) => {
+        console.log(`🔍 处理映射(Object): "${procedure}" → "${sdtmDomain}"`);
+        if (procedure && sdtmDomain) {
+          dataFlowMappings.push({
+            procedure: String(procedure),
+            sdtmDomain: Array.isArray(sdtmDomain) ? String(sdtmDomain[0]) : String(sdtmDomain),
+            adamDataset: ''
+          });
+          producedAny = true;
+        }
+      });
+    }
+
+    if (!producedAny) {
+      console.log('⚠️ 未能从mappings中构建任何有Procedure的映射行');
+      console.log('   类型:', typeof mappings, 'Array?', Array.isArray(mappings));
+      console.log('   内容:', mappings);
+    }
+  } else {
+    console.log('⚠️ currentSDTMData.mappings 不存在或为空');
+  }
+  
+  // 2. 添加未映射的SDTM域（procedure为空）
+  const mappedDomains = dataFlowMappings.map(m => m.sdtmDomain);
+  const allUniqueDomains = currentSDTMData.summary?.unique_domains || [];
+  
+  const unmappedDomains = allUniqueDomains.filter(domain => 
+    !mappedDomains.includes(domain)
+  );
+  
+  unmappedDomains.forEach(domain => {
+    dataFlowMappings.push({
+      procedure: '',           // 🔥 直接留空，不写"Manual Addition"
+      sdtmDomain: domain,
+      adamDataset: ''         // 阶段1为空
+    });
+  });
+  
+  console.log(`📊 构建了 ${dataFlowMappings.length} 个数据流映射项`);
+  console.log('🔍 最终构建的dataFlowMappings:', JSON.stringify(dataFlowMappings, null, 2));
+  return dataFlowMappings;
+}
+
+// 🔥 创建Excel数据流表格
+async function createExcelDataFlowSheet(mappings, includeADaM = false) {
+  if (!mappings || mappings.length === 0) {
+    console.warn('⚠️ 没有数据流映射数据可写入Excel');
+    return;
+  }
+
+  try {
+    await Excel.run(async (context) => {
+      const sheets = context.workbook.worksheets;
+      let dataFlowSheet = sheets.getItemOrNullObject('Data Flow');
+      dataFlowSheet.load('name');
+      await context.sync();
+
+      // 如果工作表不存在，则创建
+      if (dataFlowSheet.isNullObject) {
+        dataFlowSheet = sheets.add('Data Flow');
+      }
+
+      // 清空工作表内容
+      const usedRange = dataFlowSheet.getUsedRangeOrNullObject();
+      usedRange.load('address');
+      await context.sync();
+      if (!usedRange.isNullObject) {
+        usedRange.clear();
+      }
+
+      // 🔥 渐进式表头（根据阶段决定列数）
+      const headers = includeADaM 
+        ? ['Procedure', 'SDTM Domain', 'ADaM Dataset']
+        : ['Procedure', 'SDTM Domain'];
+      
+      const headerRange = includeADaM 
+        ? dataFlowSheet.getRange('A1:C1')
+        : dataFlowSheet.getRange('A1:B1');
+      
+      headerRange.values = [headers];
+      headerRange.format.fill.color = '#E1F5FE'; // 浅蓝色背景
+      headerRange.format.font.bold = true;
+      headerRange.format.borders.getItem('EdgeBottom').style = 'Continuous';
+
+      // 准备数据（根据阶段决定列数）
+      const rows = mappings.map(m => includeADaM 
+        ? [m.procedure || '', m.sdtmDomain || '', m.adamDataset || '']
+        : [m.procedure || '', m.sdtmDomain || '']
+      );
+
+      // 写入数据
+      if (rows.length > 0) {
+        const dataRange = dataFlowSheet.getRangeByIndexes(1, 0, rows.length, headers.length);
+        dataRange.values = rows;
+        dataRange.format.autofitColumns();
+        dataRange.format.autofitRows();
+      }
+
+      // 自动调整列宽
+      const totalRange = dataFlowSheet.getUsedRange();
+      totalRange.format.autofitColumns();
+      totalRange.format.autofitRows();
+
+      // 冻结表头
+      dataFlowSheet.freezePanes.freezeRows(1);
+
+      // 🔥 修复：不自动激活Data Flow工作表，避免影响其他Excel操作
+      // dataFlowSheet.activate(); // 注释掉，让用户手动切换工作表
+      await context.sync();
+    });
+
+    console.log('✅ 已将数据流成功写入Excel的"Data Flow"工作表');
+  } catch (error) {
+    console.error('❌ 写入数据流到Excel失败:', error);
+    throw error;
+  }
+}
+
+// 🔥 保存数据流到数据库
+async function saveDataFlowToDatabase(mappings, stage) {
+  try {
+    const currentStudyId = moduleConfig.getCurrentDocumentId();
+    if (!currentStudyId) {
+      throw new Error('No study ID found');
+    }
+    
+    const payload = {
+      mappings: mappings,
+      stage: stage,
+      hasSDTM: stage === 'sdtm' || stage === 'adam',
+      hasADaM: stage === 'adam'
+    };
+    
+    const response = await fetch(`${API_BASE_URL}/api/studies/${currentStudyId}/save-dataflow`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    });
+    
+    if (!response.ok) {
+      throw new Error(`Failed to save data flow: ${response.statusText}`);
+    }
+    
+    console.log(`✅ 数据流已保存到数据库 (${stage} 阶段)`);
+    
+  } catch (error) {
+    console.error('❌ 保存数据流到数据库失败:', error);
+    throw error;
+  }
+}
+
+// 🔥 新增：更新ADaM数据流可追溯性表（阶段2：添加ADaM列）
+async function updateADaMDataFlowSheet() {
+  try {
+    console.log('🔄 开始更新数据流表格（添加ADaM列）...');
+    
+    // 1. 获取现有的数据流数据（从数据库或从Excel读取）
+    const existingMappings = await getDataFlowFromDatabase();
+    
+    if (!existingMappings || existingMappings.length === 0) {
+      console.warn('⚠️ 没有找到现有的数据流数据，跳过ADaM更新');
+      return;
+    }
+    
+    // 2. 获取当前ADaM数据并添加到现有映射中
+    const updatedMappings = addADaMToDataFlow(existingMappings);
+    
+    // 3. 更新Excel表格（扩展为3列）
+    await createExcelDataFlowSheet(updatedMappings, true); // true = 包含ADaM列
+    
+    // 4. 保存到数据库
+    await saveDataFlowToDatabase(updatedMappings, 'adam');
+    
+    console.log('✅ ADaM数据流表格更新完成');
+    
+  } catch (error) {
+    console.error('❌ 更新ADaM数据流表格失败:', error);
+    moduleConfig.showStatusMessage('Failed to update data flow sheet: ' + error.message, 'error');
+    throw error; // 重新抛出错误，用于并发处理
+  }
+}
+
+// 🔥 从数据库获取现有的数据流数据
+async function getDataFlowFromDatabase() {
+  try {
+    const currentStudyId = moduleConfig.getCurrentDocumentId();
+    if (!currentStudyId) {
+      throw new Error('No study ID found');
+    }
+    
+    const response = await fetch(`${API_BASE_URL}/api/documents/${currentStudyId}/content`);
+    if (!response.ok) {
+      throw new Error(`Failed to fetch document: ${response.statusText}`);
+    }
+    
+    const documentData = await response.json();
+    const dataFlowMappings = documentData?.document?.traceability?.dataFlow?.mappings || [];
+    
+    console.log(`📊 从数据库获取了 ${dataFlowMappings.length} 个现有数据流映射`);
+    return dataFlowMappings;
+    
+  } catch (error) {
+    console.error('❌ 从数据库获取数据流数据失败:', error);
+    return [];
+  }
+}
+
+// 🔥 为现有数据流添加ADaM数据
+function addADaMToDataFlow(existingMappings) {
+  if (!window.currentADaMData || !window.currentADaMData.mappings) {
+    console.warn('⚠️ 没有有效的ADaM数据');
+    return existingMappings;
+  }
+  
+  const adamMappings = window.currentADaMData.mappings;
+  
+  // 为每个现有的SDTM域找到对应的ADaM域
+  const updatedMappings = existingMappings.map(mapping => {
+    let adamDataset = '';
+    
+    // 在ADaM映射中查找匹配的SDTM域
+    const adamMatch = adamMappings.find(adamMapping => {
+      const sdtmDomains = Array.isArray(adamMapping.sdtm_domains) 
+        ? adamMapping.sdtm_domains 
+        : [adamMapping.sdtm_domains].filter(Boolean);
+      
+      return sdtmDomains.includes(mapping.sdtmDomain);
+    });
+    
+    if (adamMatch) {
+      // 获取对应的ADaM域（取第一个或合并）
+      const adamDomains = Array.isArray(adamMatch.adam_domains) 
+        ? adamMatch.adam_domains 
+        : [adamMatch.adam_domains].filter(Boolean);
+      
+      adamDataset = adamDomains.length > 0 ? adamDomains[0] : '';
+    }
+    
+    return {
+      ...mapping,
+      adamDataset: adamDataset
+    };
+  });
+  
+  console.log(`📊 已为 ${updatedMappings.length} 个映射项添加ADaM数据`);
+  return updatedMappings;
+}
+
+// 🔥 新增：在单独的"TFL Plan"工作表中绘制并填充TFL计划表
+async function writeTFLToExcel(outputs) {
+  if (!outputs || !Array.isArray(outputs) || outputs.length === 0) {
+    console.warn('⚠️ 没有有效的TFL输出可写入Excel');
+    return;
+  }
+
+  try {
+    await Excel.run(async (context) => {
+      const sheets = context.workbook.worksheets;
+      let tflSheet = sheets.getItemOrNullObject('TFL Plan');
+      tflSheet.load('name');
+      await context.sync();
+
+      // 如果工作表不存在，则创建
+      if (tflSheet.isNullObject) {
+        tflSheet = sheets.add('TFL Plan');
+      }
+
+      // 清空工作表内容
+      const usedRange = tflSheet.getUsedRangeOrNullObject();
+      usedRange.load('address');
+      await context.sync();
+      if (!usedRange.isNullObject) {
+        usedRange.clear();
+      }
+
+      // 写入表头
+      const headers = [
+        'ADaM Dataset',      // 🔥 新增：第一列
+        'Output No.',
+        'Type',
+        'Output Title',      // 🔥 修改：Title -> Output Title
+        'Uniqueness',
+        'Repeat Of',
+        'Corresponding Listing'
+      ];
+
+      const headerRange = tflSheet.getRange('A1:G1'); // 🔥 修改：A1:F1 -> A1:G1
+      headerRange.values = [headers];
+      headerRange.format.fill.color = '#F3F2F1';
+      headerRange.format.font.bold = true;
+      headerRange.format.borders.getItem('EdgeBottom').style = 'Continuous';
+
+      // 准备数据
+      const rows = outputs.map(o => [
+        o.adamDataset || '',     // 🔥 新增：ADaM Dataset (第一列)
+        o.num || '',
+        o.type || '',
+        o.title || '',
+        o.uniqueness || '',
+        o.repeatOf || '',
+        o.correspondingListing || ''
+      ]);
+
+      // 写入数据
+      if (rows.length > 0) {
+        const dataRange = tflSheet.getRangeByIndexes(1, 0, rows.length, headers.length);
+        dataRange.values = rows;
+        dataRange.format.autofitColumns();
+        dataRange.format.autofitRows();
+      }
+
+      // 自动调整列宽（包含表头）
+      const totalRange = tflSheet.getUsedRange();
+      totalRange.format.autofitColumns();
+      totalRange.format.autofitRows();
+
+      // 冻结表头
+      tflSheet.freezePanes.freezeRows(1);
+
+      // 🔥 修复：不自动激活TFL Plan工作表，保持在原工作表进行Unit写入
+      // tflSheet.activate(); // 注释掉，避免影响Unit写入
+      await context.sync();
+    });
+
+    console.log('✅ 已将TFL计划成功写入Excel的"TFL Plan"工作表');
+  } catch (error) {
+    console.error('❌ 写入TFL到Excel失败:', error);
+    moduleConfig.showStatusMessage('Failed to write TFL plan to Excel: ' + error.message, 'error');
+  }
 }
 
 

@@ -310,12 +310,31 @@ class PypdfService {
       console.warn('⚠️ PDF Assessment Schedule identification/analysis failed:', e.message);
     }
 
+    // Identify endpoints from section titles using AI, then attach content from sections
+    let endpoints = [];
+    try {
+      const titles = sections.map(s => s.title || '');
+      const ident = await require('./openaiService').identifyEndpoints(titles);
+      endpoints = (ident || []).map(it => ({
+        category: it.category,
+        title: sections[it.index]?.title || titles[it.index] || '',
+        cleanedTitle: it.cleaned_title,
+        content: sections[it.index]?.content || '',
+        level: sections[it.index]?.level || null,
+        sectionIndex: it.index,
+        extractMethod: 'ai'
+      }));
+    } catch (e) {
+      console.warn('⚠️ Endpoint identification failed (PDF):', e.message);
+    }
+
     return {
       extractedText: filteredText, // Now using filtered text!
       studyNumber: studyNumber,
       sectionedText: sections, // Now includes structured sections!
       tables: formattedTables, // Now formatted for mixed PDF/Word schema!
       assessmentSchedule,
+      endpoints,
       sdtmAnalysis,
       parseInfo: {
         hasStructuredContent: sections.length > 0,

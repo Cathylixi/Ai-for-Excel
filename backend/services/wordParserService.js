@@ -5,7 +5,7 @@ const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./open
 
 // Word文档结构化解析函数 - 优化版（仅解析与存储，不进行SDTM分析）
 async function parseWordDocumentStructure(fileBuffer, options = {}) {
-  const { skipAssessmentSchedule = false } = options;
+  const { skipAssessmentSchedule = false, skipEndpoints = false } = options;
   try {
     console.log('🔍 开始从内存Buffer解析Word文档...');
     
@@ -76,6 +76,26 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
       assessmentSchedule = await identifyAssessmentScheduleWithAI(tables);
     }
     
+    // 识别 Endpoints（仅 Protocol 使用；CRF/SAP 跳过）
+    let endpoints = [];
+    if (!skipEndpoints) {
+      try {
+        const titles = sections.map(s => s.title || '');
+        const ident = await require('./openaiService').identifyEndpoints(titles);
+        endpoints = (ident || []).map(it => ({
+          category: it.category,
+          title: sections[it.index]?.title || titles[it.index] || '',
+          cleanedTitle: it.cleaned_title,
+          content: sections[it.index]?.content || '',
+          level: sections[it.index]?.level || null,
+          sectionIndex: it.index,
+          extractMethod: 'ai'
+        }));
+      } catch (e) {
+        console.warn('⚠️ Endpoint identification failed (Word):', e.message);
+      }
+    }
+
     // 不在此处执行 SDTM 分析；延后到显式的分析步骤
     const sdtmAnalysis = null;
     
@@ -84,6 +104,7 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
       sectionedText: sections,
       tables,
       assessmentSchedule,
+      endpoints,
       sdtmAnalysis,
       studyNumber,
       parseInfo: {

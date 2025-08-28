@@ -565,7 +565,8 @@ async function initExcelChangeTracking() {
 }
 
 // ===== 状态消息显示 =====
-function showStatusMessage(message, type = 'info') {
+let __statusHideTimer = null;
+function showStatusMessage(message, type = 'info', options) {
   console.log(`[${type.toUpperCase()}] ${message}`);
   
   // 在UI中显示状态消息
@@ -582,10 +583,33 @@ function showStatusMessage(message, type = 'info') {
   statusElement.className = `status-message ${type}`;
   statusElement.style.display = 'block';
   
-  // 3秒后自动隐藏
-  setTimeout(() => {
+  // 处理持久显示或自定义时长
+  const isPersist = options && options.persist === true;
+  const duration = (options && typeof options.durationMs === 'number') ? options.durationMs : 3000;
+  
+  // 清理之前的隐藏定时器，避免相互干扰
+  if (__statusHideTimer) {
+    clearTimeout(__statusHideTimer);
+    __statusHideTimer = null;
+  }
+  
+  if (!isPersist) {
+    __statusHideTimer = setTimeout(() => {
+      statusElement.style.display = 'none';
+      __statusHideTimer = null;
+    }, duration);
+  }
+}
+
+function hideStatusMessage() {
+  const statusElement = document.getElementById('status-message');
+  if (statusElement) {
     statusElement.style.display = 'none';
-  }, 3000);
+  }
+  if (__statusHideTimer) {
+    clearTimeout(__statusHideTimer);
+    __statusHideTimer = null;
+  }
 }
 
 // ===== Excel设置存储 =====

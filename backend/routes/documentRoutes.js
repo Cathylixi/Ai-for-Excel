@@ -17,7 +17,9 @@ const {
   updateUnits,
   uploadAdditionalFile,
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
-  uploadSapFile      // 🔥 新增：专门的SAP上传函数
+  uploadSapFile,     // 🔥 新增：专门的SAP上传函数
+  generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
+  saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 } = require('../controllers/documentController');
 
 const router = express.Router();
@@ -94,5 +96,11 @@ router.get('/studies/:studyIdentifier/documents', getStudyDocuments);
 
 // 新增：分析指定文档的ADaM映射
 router.post('/documents/:id/analyze-adam', analyzeDocumentForAdam);
+
+// 🔥 新增：根据确认的ADaM域生成TFL可追溯性
+router.post('/studies/:id/generate-adam-outputs', generateAdamToOutputTraceability);
+
+// 🔥 新增：保存数据流可追溯性
+router.post('/studies/:id/save-dataflow', saveDataFlowTraceability);
 
 module.exports = router; 
