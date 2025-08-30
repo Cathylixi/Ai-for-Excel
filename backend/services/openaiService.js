@@ -19,7 +19,7 @@ async function identifyAssessmentScheduleForPdfTables(tables) {
       return null;
     }
 
-    console.log('🤖 Start AI identification for PDF Assessment Schedule...');
+    // console.log('🤖 Start AI identification for PDF Assessment Schedule...');
 
     for (let i = 0; i < tables.length; i++) {
       const table = tables[i] || {};
@@ -81,7 +81,7 @@ Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONL
         });
 
         const aiText = (response.choices?.[0]?.message?.content || '').trim();
-        console.log(`📊 PDF table ${i} AI reply:`, aiText);
+        // console.log(`📊 PDF table ${i} AI reply:`, aiText);
 
         let analysis;
         try {
@@ -117,7 +117,7 @@ Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONL
       await new Promise(r => setTimeout(r, 200));
     }
 
-    console.log('❌ No Assessment Schedule identified among PDF tables');
+    // console.log('❌ No Assessment Schedule identified among PDF tables');
     return null;
   } catch (err) {
     console.error('❌ identifyAssessmentScheduleForPdfTables failed:', err.message);
@@ -128,7 +128,7 @@ Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONL
 // AI识别评估时间表函数
 async function identifyAssessmentScheduleWithAI(tables) {
   try {
-    console.log('🤖 开始使用AI识别评估时间表...');
+    // console.log('🤖 开始使用AI识别评估时间表...');
     
     for (let i = 0; i < tables.length; i++) {
       const table = tables[i];
@@ -211,13 +211,13 @@ Can this table be used to create an SDTM visit schedule? Respond ONLY with JSON:
         });
         
         const aiResponse = response.choices[0].message.content.trim();
-        console.log(`📊 表格 ${i} AI回复:`, aiResponse);
+        // console.log(`📊 表格 ${i} AI回复:`, aiResponse);
         
         // 解析AI的JSON回复
         const analysis = JSON.parse(aiResponse);
         
         if (analysis.isAssessmentSchedule && analysis.confidence > 0.7) {
-          console.log(`✅ 找到评估时间表! 表格索引: ${i}, 置信度: ${analysis.confidence}`);
+          // console.log(`✅ 找到评估时间表! 表格索引: ${i}, 置信度: ${analysis.confidence}`);
           return {
             tableIndex: i,
             htmlContent: table.htmlContent,
@@ -236,10 +236,10 @@ Can this table be used to create an SDTM visit schedule? Respond ONLY with JSON:
       await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    console.log('❌ 未找到评估时间表');
+    // console.log('❌ 未找到评估时间表');
     
     // 备用方案：基于关键词直接识别Schedule of Events
-    console.log('🔍 启用备用识别：基于关键词匹配...');
+    // console.log('🔍 启用备用识别：基于关键词匹配...');
     for (let i = 0; i < tables.length; i++) {
       const table = tables[i];
       const title = (table.title || '').toLowerCase();
@@ -247,7 +247,7 @@ Can this table be used to create an SDTM visit schedule? Respond ONLY with JSON:
       if (title.includes('schedule of events') || 
           title.includes('schedule of assessments') ||
           (title.includes('schedule') && title.includes('section'))) {
-        console.log(`✅ 备用方案识别成功: "${table.title}"`);
+        // console.log(`✅ 备用方案识别成功: "${table.title}"`);
         return {
           tableIndex: i,
           htmlContent: table.htmlContent,
@@ -294,9 +294,9 @@ Examples:
 TEXT:
 ${head}`;
 
-    console.log('🤖 ===== AI HEADER DETECTION START =====');
-    console.log(`🤖 Input text length: ${head.length} characters`);
-    console.log('🤖 Calling OpenAI GPT-4 for Study Number and Header detection...');
+    // console.log('🤖 ===== AI HEADER DETECTION START =====');
+    // console.log(`🤖 Input text length: ${head.length} characters`);
+    // console.log('🤖 Calling OpenAI GPT-4 for Study Number and Header detection...');
     
     const resp = await openai.chat.completions.create({
       model: 'gpt-4',
@@ -306,24 +306,24 @@ ${head}`;
     });
 
     const content = (resp.choices?.[0]?.message?.content || '').trim();
-    console.log(`🤖 AI raw response: ${content}`);
-    console.log('🤖 Parsing AI response...');
+    // console.log(`🤖 AI raw response: ${content}`);
+    // console.log('🤖 Parsing AI response...');
     
     let result = { studyNumber: null, headerInfo: null };
     
     try {
       const json = JSON.parse(content);
       
-      console.log('🤖 ===== AI JSON RESPONSE BREAKDOWN =====');
-      console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
-      console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
-      console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
-      console.log('🤖 ========================================');
+      // console.log('🤖 ===== AI JSON RESPONSE BREAKDOWN =====');
+      // console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
+      // console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
+      // console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
+      // console.log('🤖 ========================================');
       
       // Extract study number
       result.studyNumber = (json && json.studyNumber && json.studyNumber !== 'N/A') 
         ? String(json.studyNumber).trim() : null;
-      console.log(`🤖 Extracted Study Number: "${result.studyNumber}"`);
+      // console.log(`🤖 Extracted Study Number: "${result.studyNumber}"`);
       
       // Extract header info
       if (json && json.hasHeader && json.headerPattern) {
@@ -331,58 +331,58 @@ ${head}`;
           hasHeader: json.hasHeader,
           headerPattern: json.headerPattern
         };
-        console.log(`🤖 ✅ HEADER DETECTED!`);
-        console.log(`🤖 Header Pattern: "${json.headerPattern}"`);
-        console.log(`🤖 Has Header: ${json.hasHeader}`);
+        // console.log(`🤖 ✅ HEADER DETECTED!`);
+        // console.log(`🤖 Header Pattern: "${json.headerPattern}"`);
+        // console.log(`🤖 Has Header: ${json.hasHeader}`);
       } else {
-        console.log(`🤖 ❌ NO HEADER DETECTED`);
-        console.log(`🤖 Reason: hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
+        // console.log(`🤖 ❌ NO HEADER DETECTED`);
+        // console.log(`🤖 Reason: hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
         result.headerInfo = null;
       }
       
     } catch (e) {
-      console.log(`🤖 ⚠️ JSON parsing failed: ${e.message}`);
-      console.log('🤖 Attempting fallback parsing...');
+      // console.log(`🤖 ⚠️ JSON parsing failed: ${e.message}`);
+      // console.log('🤖 Attempting fallback parsing...');
       
       // 如果不是纯JSON，尝试提取花括号内JSON
       const start = content.indexOf('{');
       const end = content.lastIndexOf('}');
       if (start >= 0 && end > start) {
         const extractedJson = content.slice(start, end + 1);
-        console.log(`🤖 Extracted JSON from response: ${extractedJson}`);
+        // console.log(`🤖 Extracted JSON from response: ${extractedJson}`);
         
         try {
           const json = JSON.parse(extractedJson);
           
-          console.log('🤖 ===== FALLBACK JSON RESPONSE BREAKDOWN =====');
-          console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
-          console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
-          console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
-          console.log('🤖 ============================================');
+          // console.log('🤖 ===== FALLBACK JSON RESPONSE BREAKDOWN =====');
+          // console.log(`🤖 studyNumber: "${json.studyNumber || 'null'}"`);
+          // console.log(`🤖 hasHeader: ${json.hasHeader || 'false'}`);
+          // console.log(`🤖 headerPattern: "${json.headerPattern || 'null'}"`);
+          // console.log('🤖 ============================================');
           
           result.studyNumber = (json && json.studyNumber && json.studyNumber !== 'N/A') 
             ? String(json.studyNumber).trim() : null;
-          console.log(`🤖 Extracted Study Number (fallback): "${result.studyNumber}"`);
+          // console.log(`🤖 Extracted Study Number (fallback): "${result.studyNumber}"`);
             
           if (json && json.hasHeader && json.headerPattern) {
             result.headerInfo = {
               hasHeader: json.hasHeader,
               headerPattern: json.headerPattern
             };
-            console.log(`🤖 ✅ HEADER DETECTED (fallback)!`);
-            console.log(`🤖 Header Pattern (fallback): "${json.headerPattern}"`);
-            console.log(`🤖 Has Header (fallback): ${json.hasHeader}`);
+            // console.log(`🤖 ✅ HEADER DETECTED (fallback)!`);
+            // console.log(`🤖 Header Pattern (fallback): "${json.headerPattern}"`);
+            // console.log(`🤖 Has Header (fallback): ${json.hasHeader}`);
           } else {
-            console.log(`🤖 ❌ NO HEADER DETECTED (fallback)`);
-            console.log(`🤖 Reason (fallback): hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
+            // console.log(`🤖 ❌ NO HEADER DETECTED (fallback)`);
+            // console.log(`🤖 Reason (fallback): hasHeader=${json ? json.hasHeader : 'unknown'}, pattern=${json ? json.headerPattern : 'unknown'}`);
             result.headerInfo = null;
           }
         } catch (fallbackError) {
-          console.log(`🤖 ❌ Fallback JSON parsing also failed: ${fallbackError.message}`);
+          // console.log(`🤖 ❌ Fallback JSON parsing also failed: ${fallbackError.message}`);
           result.headerInfo = null;
         }
       } else {
-        console.log(`🤖 ❌ No valid JSON found in response`);
+        // console.log(`🤖 ❌ No valid JSON found in response`);
         result.headerInfo = null;
       }
     }
@@ -402,22 +402,22 @@ ${head}`;
       if (candidates.length > 0) result.studyNumber = candidates[0];
     }
 
-    console.log('🤖 ===== FINAL AI EXTRACTION RESULT =====');
-    console.log(`🤖 Study Number: "${result.studyNumber || 'null'}"`);
-    if (result.headerInfo) {
-      console.log(`🤖 Header Detected: ✅ YES`);
-      console.log(`🤖 Header Pattern: "${result.headerInfo.headerPattern}"`);
-      console.log(`🤖 Has Header: ${result.headerInfo.hasHeader}`);
-    } else {
-      console.log(`🤖 Header Detected: ❌ NO`);
-    }
-    console.log('🤖 ===== AI HEADER DETECTION END =====');
+    // console.log('🤖 ===== FINAL AI EXTRACTION RESULT =====');
+    // console.log(`🤖 Study Number: "${result.studyNumber || 'null'}"`);
+    // if (result.headerInfo) {
+    //   console.log(`🤖 Header Detected: ✅ YES`);
+    //   console.log(`🤖 Header Pattern: "${result.headerInfo.headerPattern}"`);
+    //   console.log(`🤖 Has Header: ${result.headerInfo.hasHeader}`);
+    // } else {
+    //   console.log(`🤖 Header Detected: ❌ NO`);
+    // }
+    // console.log('🤖 ===== AI HEADER DETECTION END =====');
     return result;
   } catch (err) {
     console.error('🤖 ❌ AI Study Number extraction FAILED:', err.message);
     console.error('🤖 Error details:', err);
     console.warn('🤖 Using regex fallback for Study Number extraction');
-    console.log('🤖 ===== AI HEADER DETECTION END (ERROR) =====');
+    // console.log('🤖 ===== AI HEADER DETECTION END (ERROR) =====');
     return { studyNumber: null, headerInfo: null };
   }
 }

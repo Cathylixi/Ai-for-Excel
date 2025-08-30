@@ -43,11 +43,11 @@ def save_debug_text(original_file_path: str, extracted_text: str):
             f.write("=" * 50 + "\n\n")
             f.write(extracted_text)
         
-        print(f"🐍 DEBUG: Python extracted text saved to {debug_file}", file=sys.stderr)
-        print(f"🐍 Text preview (first 300 chars):", file=sys.stderr)
-        print("-" * 40, file=sys.stderr)
-        print(extracted_text[:300], file=sys.stderr)
-        print("-" * 40, file=sys.stderr)
+        # print(f"🐍 DEBUG: Python extracted text saved to {debug_file}", file=sys.stderr)
+        # print(f"🐍 Text preview (first 300 chars):", file=sys.stderr)
+        # print("-" * 40, file=sys.stderr)
+        # print(extracted_text[:300], file=sys.stderr)
+        # print("-" * 40, file=sys.stderr)
         
     except Exception as e:
         print(f"🐍 WARNING: Failed to save debug file: {str(e)}", file=sys.stderr)
@@ -83,8 +83,8 @@ def save_debug_tables(original_file_path: str, extracted_tables: List[Dict]):
                 'tables': extracted_tables
             }, f, ensure_ascii=False, indent=2)
         
-        print(f"🐍 DEBUG: Python extracted tables saved to {debug_file}", file=sys.stderr)
-        print(f"🐍 Tables summary: {len(extracted_tables)} tables found", file=sys.stderr)
+        # print(f"🐍 DEBUG: Python extracted tables saved to {debug_file}", file=sys.stderr)
+        # print(f"🐍 Tables summary: {len(extracted_tables)} tables found", file=sys.stderr)
         
     except Exception as e:
         print(f"🐍 WARNING: Failed to save debug tables file: {str(e)}", file=sys.stderr)
@@ -113,12 +113,12 @@ def process_pdf_simple(file_path: str) -> Dict[str, Any]:
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"PDF file not found: {file_path}")
         
-        print(f"🐍 Python: Processing PDF with pdfplumber: {file_path}", file=sys.stderr)
+        # print(f"🐍 Python: Processing PDF with pdfplumber: {file_path}", file=sys.stderr)
         
         # Open PDF file with pdfplumber
         with pdfplumber.open(file_path) as pdf:
             result['total_pages'] = len(pdf.pages)
-            print(f"🐍 Python: Processing {result['total_pages']} pages", file=sys.stderr)
+            # print(f"🐍 Python: Processing {result['total_pages']} pages", file=sys.stderr)
             
             full_text = ""
             all_tables = []
@@ -131,14 +131,15 @@ def process_pdf_simple(file_path: str) -> Dict[str, Any]:
                     
                     if page_text:
                         full_text += page_text + '\n\n'
-                        print(f"🐍 Page {page_number}: {len(page_text)} characters extracted", file=sys.stderr)
+                        # print(f"🐍 Page {page_number}: {len(page_text)} characters extracted", file=sys.stderr)
                     else:
-                        print(f"🐍 Page {page_number}: No text extracted", file=sys.stderr)
+                        # print(f"🐍 Page {page_number}: No text extracted", file=sys.stderr)
+                        pass
                     
                     # Extract tables from this page
                     tables = page.extract_tables()
                     if tables:
-                        print(f"🐍 Page {page_number}: Found {len(tables)} tables", file=sys.stderr)
+                        # print(f"🐍 Page {page_number}: Found {len(tables)} tables", file=sys.stderr)
                         
                         for table_idx, table in enumerate(tables):
                             if table and len(table) > 0 and any(any(cell for cell in row) for row in table):
@@ -156,9 +157,10 @@ def process_pdf_simple(file_path: str) -> Dict[str, Any]:
                                     'columns': len(cleaned_table[0]) if cleaned_table else 0
                                 }
                                 all_tables.append(table_data)
-                                print(f"🐍 Table {table_idx + 1}: {len(cleaned_table)} rows x {len(cleaned_table[0]) if cleaned_table else 0} columns", file=sys.stderr)
+                                # print(f"🐍 Table {table_idx + 1}: {len(cleaned_table)} rows x {len(cleaned_table[0]) if cleaned_table else 0} columns", file=sys.stderr)
                     else:
-                        print(f"🐍 Page {page_number}: No tables found", file=sys.stderr)
+                        # print(f"🐍 Page {page_number}: No tables found", file=sys.stderr)
+                        pass
                         
                 except Exception as page_error:
                     # Log page processing error but continue with other pages
@@ -175,8 +177,8 @@ def process_pdf_simple(file_path: str) -> Dict[str, Any]:
             # save_debug_tables(file_path, result['tables'])
             
             # 🐛 DEBUG: Log final statistics
-            print(f"🐍 Total text extracted: {len(result['text'])} characters", file=sys.stderr)
-            print(f"🐍 Total tables extracted: {len(result['tables'])}", file=sys.stderr)
+            # print(f"🐍 Total text extracted: {len(result['text'])} characters", file=sys.stderr)
+            # print(f"🐍 Total tables extracted: {len(result['tables'])}", file=sys.stderr)
             
     except Exception as e:
         result['success'] = False

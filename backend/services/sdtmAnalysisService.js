@@ -13,10 +13,10 @@ const openai = new OpenAI({
  */
 function extractProceduresFromSchedule(assessmentSchedule) {
   try {
-    console.log('🔍 开始从Schedule of Assessment提取第一列procedures...');
+    // console.log('🔍 开始从Schedule of Assessment提取第一列procedures...');
     
     if (!assessmentSchedule || !assessmentSchedule.htmlContent) {
-      console.log('❌ 没有找到有效的Assessment Schedule');
+      // console.log('❌ 没有找到有效的Assessment Schedule');
       return [];
     }
     
@@ -25,7 +25,7 @@ function extractProceduresFromSchedule(assessmentSchedule) {
     
     // 查找表格中的所有行
     const rows = $('tr');
-    console.log(`📊 表格包含 ${rows.length} 行`);
+    // console.log(`📊 表格包含 ${rows.length} 行`);
     
     let headerSkipped = false;
     
@@ -43,7 +43,7 @@ function extractProceduresFromSchedule(assessmentSchedule) {
           );
           
           if (isHeader) {
-            console.log(`⏭️ 跳过表头行: "${cellText}"`);
+            // console.log(`⏭️ 跳过表头行: "${cellText}"`);
             headerSkipped = true;
             return; // 继续下一行
           }
@@ -68,7 +68,7 @@ function extractProceduresFromSchedule(assessmentSchedule) {
             procedures.push(cellText);
             console.log(`✅ 提取到procedure: "${cellText}"`);
           } else {
-            console.log(`⏭️ 跳过时间点/访视: "${cellText.substring(0, 60)}..."`);
+            // console.log(`⏭️ 跳过时间点/访视: "${cellText.substring(0, 60)}..."`);
           }
         }
       }
@@ -76,7 +76,7 @@ function extractProceduresFromSchedule(assessmentSchedule) {
     
     // 去重
     const uniqueProcedures = [...new Set(procedures)];
-    console.log(`📝 共提取到 ${uniqueProcedures.length} 个独特的procedures`);
+    // console.log(`📝 共提取到 ${uniqueProcedures.length} 个独特的procedures`);
     
     return uniqueProcedures;
     
@@ -93,7 +93,7 @@ function extractProceduresFromSchedule(assessmentSchedule) {
  */
 async function analyzeSDTMMapping(procedures) {
   try {
-    console.log('🤖 开始使用GPT分析SDTM映射关系...');
+    // console.log('🤖 开始使用GPT分析SDTM映射关系...');
     
     if (!procedures || procedures.length === 0) {
       return {
@@ -186,7 +186,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
     });
     
     const aiResponse = response.choices[0].message.content.trim();
-    console.log('📊 GPT分析回复:', aiResponse);
+    // console.log('📊 GPT分析回复:', aiResponse);
     
     // 解析AI的JSON回复
     let analysis;
@@ -285,10 +285,10 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
       });
     }
     
-    console.log(`📊 简化映射格式: ${mappingsMap.size} 个procedures映射`);
-    Array.from(mappingsMap.entries()).slice(0, 3).forEach(([proc, domains]) => {
-      console.log(`   "${proc}": "${domains}"`);
-    });
+    // console.log(`📊 简化映射格式: ${mappingsMap.size} 个procedures映射`);
+    // Array.from(mappingsMap.entries()).slice(0, 3).forEach(([proc, domains]) => {
+    //   console.log(`   \"${proc}\": \"${domains}\"`);
+    // });
     
     return {
       success: true,
@@ -319,7 +319,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${proced
  */
 async function performSDTMAnalysis(assessmentSchedule) {
   try {
-    console.log('🎯 开始完整的SDTM分析流程...');
+    // console.log('🎯 开始完整的SDTM分析流程...');
     
     // 第一步：提取procedures
     const procedures = extractProceduresFromSchedule(assessmentSchedule);

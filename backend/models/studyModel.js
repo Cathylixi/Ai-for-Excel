@@ -110,7 +110,7 @@ const CostEstimateDetailsSchema = new mongoose.Schema({
     success: { type: Boolean, default: false },
     mappings: {
       type: Map,
-      of: { type: String }, // SDTM域 -> ADaM域字符串的映射（逗号分隔）
+      of: [{ type: String }], // ADaM域 -> [SDTM域数组]
       default: new Map()
     },
     summary: {
@@ -131,7 +131,7 @@ const CostEstimateDetailsSchema = new mongoose.Schema({
   // ✅ 新增：用户确认的ADaM（与 userConfirmedSdtm 对齐，放在 adamAnalysis 之后）
   userConfirmedAdam: {
     success: { type: Boolean, default: false },
-    mappings: { type: Map, of: { type: String }, default: new Map() },
+    mappings: { type: Map, of: [{ type: String }], default: new Map() },
     summary: {
       total_adam_domains: { type: Number },
       unique_adam_domains: [{ type: String }],

@@ -8,9 +8,10 @@ const openai = new OpenAI({
 /**
  * 使用GPT分析SDTM数据集的ADaM映射关系
  * @param {Array} sdtmDomains - SDTM域列表
+ * @param {Array} endpoints - 协议中提取的研究终点信息（可选）
  * @returns {Object} 分析结果包含mappings和summary
  */
-async function analyzeADaMMappings(sdtmDomains) {
+async function analyzeADaMMappings(sdtmDomains, endpoints = []) {
   try {
     console.log('🤖 开始使用GPT分析ADaM映射关系...');
     
@@ -26,6 +27,34 @@ async function analyzeADaMMappings(sdtmDomains) {
       };
     }
     
+    // 🔥 新增：构建 endpoints 文本
+    let endpointsSection = '';
+    if (endpoints && endpoints.length > 0) {
+      // console.log(`📊 包含 ${endpoints.length} 个研究终点信息到ADaM生成prompt中`);
+      const endpointsText = endpoints.map((endpoint, i) => {
+        const category = endpoint.category || 'Other';
+        const title = endpoint.title || endpoint.cleanedTitle || 'Untitled';
+        const content = endpoint.content || 'No content available';
+        return `${i + 1}. [${category}] ${title}\n   Content: ${content}`;
+      }).join('\n\n');
+      
+      endpointsSection = `
+
+🔥 STUDY ENDPOINTS (PLEASE REFERENCE THESE FOR ADAM GENERATION):
+Here are the study endpoints extracted from the clinical protocol. Please ensure your ADaM domains align with and support the analysis of these endpoints:
+
+${endpointsText}
+
+🔥 ENDPOINT-BASED ADAM REQUIREMENTS:
+- Primary endpoints should be reflected in appropriate efficacy-related ADaM datasets (ADTTE, ADRS, etc.)
+- Secondary endpoints should be covered in corresponding ADaM datasets
+- Safety endpoints should be reflected in safety-related ADaM datasets (ADAE, ADCM, etc.)
+- Each endpoint type should have appropriate ADaM datasets to support the required analysis
+- Consider time-to-event endpoints for ADTTE datasets, response endpoints for ADRS datasets`;
+    } else {
+      // console.log('⚠️ 没有研究终点信息，使用标准ADaM生成模式');
+    }
+
     // Build GPT prompt
     const prompt = `You are a clinical trial data standards (CDISC ADaM) expert. I have a list of SDTM datasets with corresponding procedures. Please analyze which ADaM domains we need to summarize all those SDTM.
 
@@ -34,7 +63,7 @@ IMPORTANT: Return ONLY valid JSON. Do not include any explanations, markdown cod
 🔥 CRITICAL REQUIREMENT: Please go through all the SDTM datasets in the list and map them to ADaM domains reasonably, ADSL is the must to have one.
 
 SDTM Domains List:
-${sdtmDomains.map((d, i) => `${i + 1}. ${d}`).join('\n')}
+${sdtmDomains.map((d, i) => `${i + 1}. ${d}`).join('\n')}${endpointsSection}
 
 Please analyze based on CDISC ADaM standards version 1.2. Common ADaM domains include:
 
@@ -74,6 +103,11 @@ Please return JSON format, ensuring the mappings array contains exactly ${sdtmDo
   }
 }`;
 
+    console.log(`📝 ADaM Generation Prompt built. Length: ${prompt.length} characters.`);
+
+    console.log('🔍 [PROMPT] ADaM generation prompt built (full text below)');
+    console.log(prompt);
+
     const response = await openai.chat.completions.create({
       model: "gpt-4",  // 使用GPT-4
       messages: [
@@ -87,7 +121,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${sdtmDo
     });
 
     const analysisText = response.choices[0].message.content.trim();
-    console.log('🔍 [DEBUG] AI返回原始内容:', analysisText);
+    // console.log('🔍 [DEBUG] AI返回原始内容:', analysisText);
 
     // 解析JSON响应（容错：处理带前言/代码块等非纯JSON的情况）
     function extractJson(text) {
@@ -177,25 +211,30 @@ Please return JSON format, ensuring the mappings array contains exactly ${sdtmDo
 
     console.log(`✅ ADaM分析完成 - 发现 ${analysis.summary.unique_adam_domains.length} 个不同的ADaM域`);
     
-    // 转换mappings为Map格式以便MongoDB存储 - 简化为字符串格式
+    // 转换mappings为 Map<ADaM, Array<SDTM>> 以便MongoDB存储
     const mappingsMap = new Map();
     if (analysis.mappings && Array.isArray(analysis.mappings)) {
       analysis.mappings.forEach(item => {
-        const sdtmDomains = item.sdtm_domains || [];
-        const adamDomains = item.adam_domains || [];
-        if (sdtmDomains.length > 0 && adamDomains.length > 0) {
-          // 将SDTM域作为key，ADaM域作为value
-          const sdtmKey = sdtmDomains.join(', ');
-          const adamValue = adamDomains.join(', ');
-          mappingsMap.set(sdtmKey, adamValue);
-        }
+        const sdtmDomains = Array.isArray(item.sdtm_domains) ? item.sdtm_domains : [item.sdtm_domains].filter(Boolean);
+        const adamDomains = Array.isArray(item.adam_domains) ? item.adam_domains : [item.adam_domains].filter(Boolean);
+        if (sdtmDomains.length === 0 || adamDomains.length === 0) return;
+        adamDomains.forEach(adam => {
+          const adamKey = String(adam || '').trim();
+          if (!adamKey) return;
+          if (!mappingsMap.has(adamKey)) mappingsMap.set(adamKey, []);
+          const list = mappingsMap.get(adamKey);
+          sdtmDomains.forEach(sd => {
+            const sdKey = String(sd || '').trim();
+            if (sdKey && !list.includes(sdKey)) list.push(sdKey);
+          });
+        });
       });
     }
     
-    console.log(`📊 简化映射格式: ${mappingsMap.size} 个SDTM→ADaM映射`);
-    Array.from(mappingsMap.entries()).slice(0, 3).forEach(([sdtm, adam]) => {
-      console.log(`   "${sdtm}": "${adam}"`);
-    });
+    // console.log(`📊 简化映射格式: ${mappingsMap.size} 个ADaM→[SDTM] 映射`);
+    // Array.from(mappingsMap.entries()).slice(0, 3).forEach(([adam, sdtmList]) => {
+    //   console.log(`   "${adam}": [${sdtmList.join(', ')}]`);
+    // });
     
     return {
       success: true,
@@ -221,11 +260,12 @@ Please return JSON format, ensuring the mappings array contains exactly ${sdtmDo
 /**
  * 完整的ADaM分析流程
  * @param {Object} sdtmAnalysisResult - SDTM分析结果
+ * @param {Array} endpoints - 协议中提取的研究终点信息（可选）
  * @returns {Object} 完整的ADaM分析结果
  */
-async function performADaMAnalysis(sdtmAnalysisResult) {
+async function performADaMAnalysis(sdtmAnalysisResult, endpoints = []) {
   try {
-    console.log('🎯 开始完整的ADaM分析流程...');
+    // console.log('🎯 开始完整的ADaM分析流程...');
     
     // 从SDTM分析结果中提取域列表
     const sdtmDomains = sdtmAnalysisResult?.summary?.unique_domains || [];
@@ -243,7 +283,7 @@ async function performADaMAnalysis(sdtmAnalysisResult) {
     }
     
     // GPT分析ADaM映射
-    const mappingResult = await analyzeADaMMappings(sdtmDomains);
+    const mappingResult = await analyzeADaMMappings(sdtmDomains, endpoints);
     
     return {
       success: mappingResult.success,
@@ -270,9 +310,10 @@ async function performADaMAnalysis(sdtmAnalysisResult) {
 /**
  * 根据确认的ADaM域生成TFL(Tables, Figures, Listings)清单
  * @param {Array} adamDomains - 用户确认的ADaM域列表
+ * @param {Array} endpoints - 协议中提取的研究终点信息（可选）
  * @returns {Object} 包含outputs数组的结果
  */
-async function generateOutputsFromDomains(adamDomains) {
+async function generateOutputsFromDomains(adamDomains, endpoints = []) {
   try {
     console.log('🎯 开始根据ADaM域生成TFL清单...');
     
@@ -287,6 +328,34 @@ async function generateOutputsFromDomains(adamDomains) {
     // 构建提示词
     const domainsText = adamDomains.map((d, i) => `${i + 1}. ${d}`).join('\n');
     
+    // 🔥 新增：构建 endpoints 文本
+    let endpointsSection = '';
+    if (endpoints && endpoints.length > 0) {
+      // console.log(`📊 包含 ${endpoints.length} 个研究终点信息到TFL生成prompt中`);
+      const endpointsText = endpoints.map((endpoint, i) => {
+        const category = endpoint.category || 'Other';
+        const title = endpoint.title || endpoint.cleanedTitle || 'Untitled';
+        const content = endpoint.content || 'No content available';
+        return `${i + 1}. [${category}] ${title}\n   Content: ${content}`;
+      }).join('\n\n');
+      
+      endpointsSection = `
+
+🔥 STUDY ENDPOINTS (PLEASE REFERENCE THESE FOR TFL GENERATION):
+Here are the study endpoints extracted from the clinical protocol. Please ensure your TFL outputs align with and support the analysis of these endpoints:
+
+${endpointsText}
+
+🔥 ENDPOINT-BASED TFL REQUIREMENTS:
+- Primary endpoints should have dedicated efficacy tables and figures (section 14.2.x)
+- Secondary endpoints should be covered in appropriate tables/listings
+- Safety endpoints should be reflected in safety tables (section 14.3.x)
+- Each endpoint should have corresponding summary tables and detailed listings
+- Consider time-to-event endpoints for survival analysis outputs (KM plots, etc.)`;
+    } else {
+      // console.log('⚠️ 没有研究终点信息，使用标准TFL生成模式');
+    }
+    
     const prompt = `You are a clinical trial biostatistician. I have a list of ADaM datasets. Please analyze which outputs (tables, figures, listings) we need to summarize all those ADaM.
 
 🔥 CRITICAL REQUIREMENT: Please go through all the ADaM datasets in the list and consider which outputs can be generated from each of them. Please analyze based on the ICH E3 guideline, as the outputs are used to generate the Clinical Study Reports.
@@ -298,7 +367,7 @@ async function generateOutputsFromDomains(adamDomains) {
 3. Correspondence between outputs - Each table must have corresponding listing - Table and figure do not have a one-to-one correspondence - For the solid tumor oncology trial, must include waterfall plot, simmer lane plot and spider plot. If there are ADTTE domain, must include KM plot for the time-to-event end point.
 
 ADaM Datasets:
-${domainsText}
+${domainsText}${endpointsSection}
 
 Please return ONLY valid JSON in the following format:
 {
@@ -322,7 +391,9 @@ Please return ONLY valid JSON in the following format:
   ]
 }`;
 
-    console.log('🤖 调用OpenAI生成TFL清单...');
+    console.log(`📝 TFL Generation Prompt built. Length: ${prompt.length} characters.`);
+    console.log('🔍 [PROMPT] TFL generation prompt built (full text below)');
+    console.log(prompt);
     
     const response = await openai.chat.completions.create({
       model: "gpt-4",
@@ -337,7 +408,7 @@ Please return ONLY valid JSON in the following format:
     });
 
     const responseText = response.choices[0].message.content.trim();
-    console.log('🔍 [DEBUG] AI返回TFL内容:', responseText);
+    // console.log('🔍 [DEBUG] AI返回TFL内容:', responseText);
 
     // 解析JSON响应（复用现有的健壮解析逻辑）
     function extractJson(text) {

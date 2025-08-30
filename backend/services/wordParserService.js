@@ -7,7 +7,7 @@ const { identifyAssessmentScheduleWithAI, extractStudyNumber } = require('./open
 async function parseWordDocumentStructure(fileBuffer, options = {}) {
   const { skipAssessmentSchedule = false, skipEndpoints = false } = options;
   try {
-    console.log('🔍 开始从内存Buffer解析Word文档...');
+    // // console.log('🔍 开始从内存Buffer解析Word文档...');
     
     // 第1步：使用样式映射的HTML转换
     const styleMap = [
@@ -28,7 +28,7 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
     });
     let htmlContent = htmlResult.value;
     
-    console.log('✅ Word -> HTML 转换完成 (使用样式映射)');
+    // // console.log('✅ Word -> HTML 转换完成 (使用样式映射)');
     
     // 第2步：同时获取原始文本用于模式匹配
     const rawTextResult = await mammoth.extractRawText({ buffer: fileBuffer });
@@ -37,7 +37,7 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
     // 提取Study Number（AI + 兜底）
     const aiResult = await extractStudyNumber(extractedText);
     const studyNumber = aiResult.studyNumber;
-    if (studyNumber) console.log('🔎 识别到 Study Number:', studyNumber);
+    // if (studyNumber) console.log('🔎 识别到 Study Number:', studyNumber);
     
     // 使用cheerio解析HTML
     const $ = cheerio.load(htmlContent);
@@ -59,20 +59,20 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
       $(this).remove();
     });
     
-    console.log(`📊 提取到 ${tables.length} 个表格`);
+    // // console.log(`📊 提取到 ${tables.length} 个表格`);
     
     // 第4步：多层标题识别算法
     const sections = await extractSectionsWithAdvancedDetection($, extractedText);
     
-    console.log(`📝 优化算法解析到 ${sections.length} 个章节`);
+    // // console.log(`📝 优化算法解析到 ${sections.length} 个章节`);
     
     // 识别评估时间表（供后续分析使用）
     let assessmentSchedule = null;
     if (skipAssessmentSchedule) {
-      console.log('🚫 Word CRF/SAP: Skipping Assessment Schedule identification');
+      // console.log('🚫 Word CRF/SAP: Skipping Assessment Schedule identification');
       assessmentSchedule = null;
     } else {
-      console.log('🔍 开始AI识别评估时间表...');
+      // console.log('🔍 开始AI识别评估时间表...');
       assessmentSchedule = await identifyAssessmentScheduleWithAI(tables);
     }
     
@@ -149,27 +149,27 @@ async function parseWordDocumentStructure(fileBuffer, options = {}) {
 async function extractSectionsWithAdvancedDetection($, extractedText) {
   const sections = [];
   
-  console.log('🔍 启动多层标题识别算法...');
+  // // console.log('🔍 启动多层标题识别算法...');
   
   // 第1层：HTML标题标签识别
   const htmlSections = extractSectionsFromHTML($);
-  console.log(`📋 HTML标题识别: ${htmlSections.length} 个章节`);
+  // // console.log(`📋 HTML标题识别: ${htmlSections.length} 个章节`);
   
   // 第2层：编号模式识别 
   const patternSections = extractSectionsFromPatterns(extractedText);
-  console.log(`🔢 编号模式识别: ${patternSections.length} 个章节`);
+  // // console.log(`🔢 编号模式识别: ${patternSections.length} 个章节`);
   
   // 第3层：内容特征识别
   const contentSections = extractSectionsFromContent(extractedText);
-  console.log(`📝 内容特征识别: ${contentSections.length} 个章节`);
+  // // console.log(`📝 内容特征识别: ${contentSections.length} 个章节`);
   
   // 第4层：合并和去重
   const mergedSections = mergeSectionResults(htmlSections, patternSections, contentSections, extractedText);
-  console.log(`🔗 合并后章节: ${mergedSections.length} 个`);
+  // // console.log(`🔗 合并后章节: ${mergedSections.length} 个`);
   
   // 第5层：AI辅助优化 (可选)
   const finalSections = await optimizeSectionsWithAI(mergedSections);
-  console.log(`🤖 AI优化后: ${finalSections.length} 个章节`);
+  // // console.log(`🤖 AI优化后: ${finalSections.length} 个章节`);
   
   return finalSections;
 }

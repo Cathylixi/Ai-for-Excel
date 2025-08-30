@@ -1477,35 +1477,24 @@ function collectCurrentADaMMappings() {
   const updatedMappings = [];
   
   mappingItems.forEach((item, index) => {
-    const sdtmElement = item.querySelector('.adam-sdtm-name strong');
-    const adamElements = item.querySelectorAll('.domain-tag, .editable-domain-tag, .domain-edit-select');
-    
-    if (sdtmElement) {
-      const sdtmDomain = sdtmElement.textContent.replace('SDTM: ', '').trim();
-      const adamDomains = [];
-      
-      adamElements.forEach(element => {
-        let adamValue;
+    const adamElement = item.querySelector('.adam-adam-name strong');
+    const domainElements = item.querySelectorAll('.domain-tag, .editable-domain-tag, .domain-edit-select');
+    if (adamElement) {
+      const adamName = adamElement.textContent.replace('ADaM: ', '').trim();
+      const sdtmDomains = [];
+      domainElements.forEach(element => {
+        let val;
         if (element.tagName === 'SELECT') {
-          adamValue = element.value;
+          val = element.value;
         } else {
-          // 处理普通标签和可编辑标签
-          adamValue = element.textContent.trim();
-          // 移除删除按钮的×符号
-          adamValue = adamValue.replace('×', '').trim();
+          val = element.textContent.replace('×', '').trim();
         }
-        
-        if (adamValue && adamValue !== 'No Mapping') {
-          adamDomains.push(adamValue);
+        if (val && val !== 'No Mapping') {
+          sdtmDomains.push(val);
         }
       });
-      
-      updatedMappings.push({
-        sdtm_domains: sdtmDomain,      // ADaM映射的源是SDTM域
-        adam_domains: adamDomains      // ADaM映射的目标是ADaM域数组
-      });
-      
-      console.log(`📋 ADaM映射 ${index + 1}: ${sdtmDomain} → [${adamDomains.join(', ')}]`);
+      updatedMappings.push({ adam: adamName, sdtm_domains: sdtmDomains });
+      console.log(`📋 ADaM映射 ${index + 1}: ${adamName} ← [${sdtmDomains.join(', ')}]`);
     }
   });
   
@@ -2729,25 +2718,23 @@ function displayADaMAnalysis(adamAnalysis) {
   // 确保映射数据格式正确，支持编辑功能
   let formattedMappings = [];
   if (adamAnalysis.mappings) {
+    // 统一转换为 ADaM → [SDTM] 的数组
     if (adamAnalysis.mappings instanceof Map) {
-      // Map格式转为数组
-      formattedMappings = Array.from(adamAnalysis.mappings.entries()).map(([sdtm, adam]) => ({
-        sdtm_domains: sdtm,
-        adam_domains: Array.isArray(adam) ? adam : String(adam).split(',').map(s => s.trim()).filter(Boolean)
+      formattedMappings = Array.from(adamAnalysis.mappings.entries()).map(([adam, sdtmList]) => ({
+        adam: adam,
+        sdtm_domains: Array.isArray(sdtmList) ? sdtmList : String(sdtmList || '').split(',').map(s => s.trim()).filter(Boolean)
       }));
     } else if (Array.isArray(adamAnalysis.mappings)) {
-      // 数组格式（确保adam_domains是数组）
       formattedMappings = adamAnalysis.mappings.map(mapping => ({
-        ...mapping,
-        adam_domains: Array.isArray(mapping.adam_domains) 
-          ? mapping.adam_domains 
-          : String(mapping.adam_domains || '').split(',').map(s => s.trim()).filter(Boolean)
+        adam: mapping.adam || mapping.adam_domain || mapping.adamDataset || '',
+        sdtm_domains: Array.isArray(mapping.sdtm_domains) 
+          ? mapping.sdtm_domains 
+          : String(mapping.sdtm_domains || '').split(',').map(s => s.trim()).filter(Boolean)
       }));
     } else if (typeof adamAnalysis.mappings === 'object') {
-      // 对象格式转为数组
-      formattedMappings = Object.entries(adamAnalysis.mappings).map(([sdtm, adam]) => ({
-        sdtm_domains: sdtm,
-        adam_domains: Array.isArray(adam) ? adam : String(adam).split(',').map(s => s.trim()).filter(Boolean)
+      formattedMappings = Object.entries(adamAnalysis.mappings).map(([adam, sdtmList]) => ({
+        adam: adam,
+        sdtm_domains: Array.isArray(sdtmList) ? sdtmList : String(sdtmList || '').split(',').map(s => s.trim()).filter(Boolean)
       }));
     }
   }
@@ -2782,14 +2769,14 @@ function displayADaMAnalysis(adamAnalysis) {
     ).join('');
   }
 
-  // 显示SDTM→ADaM映射
+  // 显示ADaM→SDTM映射
   displayADaMMappingsList(adamAnalysis.mappings);
   
   // 绑定ADaM按钮事件
   bindADaMButtonEvents();
 }
 
-// 显示ADaM映射列表
+// 显示ADaM映射列表（ADaM → SDTM）
 function displayADaMMappingsList(adamMappings) {
   const container = document.getElementById('adam-mappings-list');
   if (!container) {
@@ -2804,20 +2791,22 @@ function displayADaMMappingsList(adamMappings) {
     return;
   }
 
-  // 转换Map为数组（如果需要）
+  // 统一为 [{ adam: 'ADSL', sdtm_domains: ['DM','DS'] }]
   let mappingsArray = [];
   if (adamMappings instanceof Map) {
-    mappingsArray = Array.from(adamMappings.entries()).map(([sdtm, adam]) => ({
-      sdtm_domains: sdtm,
-      adam_domains: adam
+    mappingsArray = Array.from(adamMappings.entries()).map(([adam, sdtmList]) => ({
+      adam: adam,
+      sdtm_domains: Array.isArray(sdtmList) ? sdtmList : String(sdtmList || '').split(',').map(s => s.trim()).filter(Boolean)
     }));
   } else if (Array.isArray(adamMappings)) {
-    mappingsArray = adamMappings;
+    mappingsArray = adamMappings.map(m => ({
+      adam: m.adam || m.adam_domain || m.adamDataset || '',
+      sdtm_domains: Array.isArray(m.sdtm_domains) ? m.sdtm_domains : String(m.sdtm_domains || '').split(',').map(s => s.trim()).filter(Boolean)
+    }));
   } else if (typeof adamMappings === 'object' && adamMappings !== null) {
-    // 处理从MongoDB序列化来的对象格式
-    mappingsArray = Object.entries(adamMappings).map(([sdtm, adam]) => ({
-      sdtm_domains: sdtm,
-      adam_domains: adam
+    mappingsArray = Object.entries(adamMappings).map(([adam, sdtmList]) => ({
+      adam: adam,
+      sdtm_domains: Array.isArray(sdtmList) ? sdtmList : String(sdtmList || '').split(',').map(s => s.trim()).filter(Boolean)
     }));
   }
 
@@ -2825,18 +2814,13 @@ function displayADaMMappingsList(adamMappings) {
     const mappingDiv = document.createElement('div');
     mappingDiv.className = 'adam-mapping-item';
     
-    const sdtmDomains = mapping.sdtm_domains || 'Unknown SDTM';
-    const adamDomains = mapping.adam_domains || 'Unknown ADaM';
+    const adamName = mapping.adam || 'Unknown ADaM';
+    const sdtmDomains = mapping.sdtm_domains || [];
     
-    // 支持字符串（逗号分隔）或数组两种格式
-    const adamDomainList = Array.isArray(adamDomains)
-      ? adamDomains
-      : String(adamDomains).split(',').map(s => s.trim()).filter(Boolean);
-    
-    const tagsHtml = adamDomainList.map(d => `<span class="domain-tag">${d}</span>`).join('');
+    const tagsHtml = sdtmDomains.map(d => `<span class="domain-tag">${d}</span>`).join('');
     
     mappingDiv.innerHTML = `
-      <div class="adam-sdtm-name"><strong>SDTM: ${sdtmDomains}</strong></div>
+      <div class="adam-adam-name"><strong>ADaM: ${adamName}</strong></div>
       <div class="adam-domain-tags">${tagsHtml}</div>
     `;
     container.appendChild(mappingDiv);
@@ -3459,26 +3443,20 @@ function addADaMToDataFlow(existingMappings) {
   
   const adamMappings = window.currentADaMData.mappings;
   
-  // 为每个现有的SDTM域找到对应的ADaM域
+  // 为每个现有的SDTM域找到对应的ADaM域（基于 ADaM→SDTM）
   const updatedMappings = existingMappings.map(mapping => {
     let adamDataset = '';
     
-    // 在ADaM映射中查找匹配的SDTM域
+    // 在ADaM映射中查找包含该SDTM域的ADaM项
     const adamMatch = adamMappings.find(adamMapping => {
-      const sdtmDomains = Array.isArray(adamMapping.sdtm_domains) 
-        ? adamMapping.sdtm_domains 
-        : [adamMapping.sdtm_domains].filter(Boolean);
-      
+      const sdtmDomains = Array.isArray(adamMapping.sdtm_domains)
+        ? adamMapping.sdtm_domains
+        : String(adamMapping.sdtm_domains || '').split(',').map(s => s.trim()).filter(Boolean);
       return sdtmDomains.includes(mapping.sdtmDomain);
     });
     
     if (adamMatch) {
-      // 获取对应的ADaM域（取第一个或合并）
-      const adamDomains = Array.isArray(adamMatch.adam_domains) 
-        ? adamMatch.adam_domains 
-        : [adamMatch.adam_domains].filter(Boolean);
-      
-      adamDataset = adamDomains.length > 0 ? adamDomains[0] : '';
+      adamDataset = adamMatch.adam || adamMatch.adam_domain || '';
     }
     
     return {

@@ -28,7 +28,7 @@ class PypdfService {
   ensureTempDir() {
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
-      console.log(`📁 Created temporary directory: ${this.tempDir}`);
+      // // console.log(`📁 Created temporary directory: ${this.tempDir}`);
     }
   }
 
@@ -59,7 +59,7 @@ class PypdfService {
     try {
       if (fs.existsSync(filePath)) {
         fs.unlinkSync(filePath);
-        console.log(`🧹 Cleaned up temporary file: ${path.basename(filePath)}`);
+        // // console.log(`🧹 Cleaned up temporary file: ${path.basename(filePath)}`);
       }
     } catch (error) {
       console.warn(`⚠️ Failed to clean up temporary file: ${error.message}`);
@@ -94,7 +94,7 @@ class PypdfService {
     
     try {
       await execFileAsync(anacondaPython, ['--version']);
-      console.log(`✅ Using Anaconda Python: ${anacondaPython}`);
+      // // console.log(`✅ Using Anaconda Python: ${anacondaPython}`);
       return anacondaPython;
     } catch (error) {
       console.warn(`⚠️ Anaconda Python not found, falling back to system Python`);
@@ -122,16 +122,16 @@ class PypdfService {
     let tempFilePath = null;
     
     try {
-      console.log('🐍 Starting simplified Python pypdf processing...');
+      // // console.log('🐍 Starting simplified Python pypdf processing...');
       
       // Check Python environment
       const pythonCmd = await this.getPythonCommand();
-      console.log(`✅ Using Python command: ${pythonCmd}`);
+      // // console.log(`✅ Using Python command: ${pythonCmd}`);
       
       // Create temporary file
       tempFilePath = this.generateTempFilePath();
       fs.writeFileSync(tempFilePath, fileBuffer);
-      console.log(`📄 Created temporary PDF file: ${path.basename(tempFilePath)} (${(fileBuffer.length / 1024).toFixed(1)} KB)`);
+      // // console.log(`📄 Created temporary PDF file: ${path.basename(tempFilePath)} (${(fileBuffer.length / 1024).toFixed(1)} KB)`);
       
       // Call Python script
       const startTime = Date.now();
@@ -141,7 +141,7 @@ class PypdfService {
       });
       
       const processTime = Date.now() - startTime;
-      console.log(`⏱️ Python processing time: ${processTime}ms`);
+      // // console.log(`⏱️ Python processing time: ${processTime}ms`);
       
       // Check stderr output
       if (stderr && stderr.trim()) {
@@ -169,11 +169,7 @@ class PypdfService {
         parseMethod: 'pdfplumber-simple'
       };
       
-      console.log(`✅ pdfplumber processing completed:`);
-      console.log(`   - Total pages: ${result.total_pages}`);
-      console.log(`   - Text length: ${result.text.length}`);
-      console.log(`   - Tables found: ${result.tables ? result.tables.length : 0}`);
-      console.log(`   - Processing time: ${processTime}ms`);
+      // // console.log(`✅ pdfplumber processing completed: pages=${result.total_pages}, text=${result.text.length}, tables=${result.tables ? result.tables.length : 0}, time=${processTime}ms`);
       
       return result;
       
@@ -238,12 +234,12 @@ class PypdfService {
     let filteredText = pypdfResult.text;
     if (headerInfo && headerInfo.hasHeader && headerInfo.headerPattern) {
       filteredText = this.filterHeaders(pypdfResult.text, headerInfo.headerPattern);
-      console.log(`🧹 Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
+      // // console.log(`🧹 Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
       
       // 🐛 DEBUG: Save filtered text for comparison
       // this.saveDebugFiles(filteredText, 'filtered');
     } else {
-      console.log(`📝 No header pattern detected, using original text`);
+      // // console.log(`📝 No header pattern detected, using original text`);
     }
 
     // Extract sections from filtered text using multi-layer algorithm
@@ -291,7 +287,7 @@ class PypdfService {
               }
             };
           } else {
-            console.log('⚠️ No procedures extracted from PDF Assessment Schedule');
+            // // console.log('⚠️ No procedures extracted from PDF Assessment Schedule');
             sdtmAnalysis = {
               success: false,
               procedures: [],
@@ -382,9 +378,9 @@ class PypdfService {
     let filteredText = pypdfResult.text;
     if (headerInfo && headerInfo.hasHeader && headerInfo.headerPattern) {
       filteredText = this.filterHeaders(pypdfResult.text, headerInfo.headerPattern);
-      console.log(`🧹 CRF/SAP Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
+      // // console.log(`🧹 CRF/SAP Header filtering applied. Text length: ${pypdfResult.text.length} → ${filteredText.length}`);
     } else {
-      console.log(`📝 CRF/SAP No header pattern detected, using original text`);
+      // // console.log(`📝 CRF/SAP No header pattern detected, using original text`);
     }
 
     // Extract sections from filtered text using multi-layer algorithm
@@ -394,7 +390,7 @@ class PypdfService {
     const formattedTables = this.formatPdfTablesForDatabase(pypdfResult.tables);
 
     // 🔥 CRF/SAP: 完全跳过 Assessment Schedule 识别和 SDTM procedures 提取
-    console.log('🚫 CRF/SAP: Skipping Assessment Schedule identification');
+    // // console.log('🚫 CRF/SAP: Skipping Assessment Schedule identification');
 
     return {
       extractedText: filteredText,
@@ -463,7 +459,7 @@ class PypdfService {
         return row;
       });
 
-      console.log(`📊 Formatted PDF table ${index + 1}: ${normalizedData.length} rows × ${maxColumns} columns (page ${table.page})`);
+      // // console.log(`📊 Formatted PDF table ${index + 1}: ${normalizedData.length} rows × ${maxColumns} columns (page ${table.page})`);
 
       return {
         // PDF-specific fields
@@ -504,7 +500,7 @@ class PypdfService {
 
       const metaPath = path.join(this.tempDir, `${baseName}_meta.json`);
       fs.writeFileSync(metaPath, JSON.stringify(metaData, null, 2), 'utf8');
-      console.log(`🐛 DEBUG: Assessment Schedule metadata saved to ${metaPath}`);
+      // // console.log(`🐛 DEBUG: Assessment Schedule metadata saved to ${metaPath}`);
 
       // Save table data as CSV
       if (schedule.data && Array.isArray(schedule.data)) {
@@ -524,15 +520,15 @@ class PypdfService {
 
         const csvPath = path.join(this.tempDir, `${baseName}.csv`);
         fs.writeFileSync(csvPath, csvContent, 'utf8');
-        console.log(`🐛 DEBUG: Assessment Schedule CSV saved to ${csvPath}`);
-        console.log(`📊 CSV contains ${schedule.data.length} rows × ${schedule.data[0]?.length || 0} columns`);
+        // // console.log(`🐛 DEBUG: Assessment Schedule CSV saved to ${csvPath}`);
+        // // console.log(`📊 CSV contains ${schedule.data.length} rows × ${schedule.data[0]?.length || 0} columns`);
       }
 
       // If HTML is available, also save full HTML separately for convenient viewing
       if (schedule.htmlContent) {
         const htmlPath = path.join(this.tempDir, `${baseName}.html`);
         fs.writeFileSync(htmlPath, String(schedule.htmlContent), 'utf8');
-        console.log(`🐛 DEBUG: Assessment Schedule HTML saved to ${htmlPath}`);
+        // // console.log(`🐛 DEBUG: Assessment Schedule HTML saved to ${htmlPath}`);
       }
     } catch (err) {
       console.warn('⚠️ Failed to save Assessment Schedule debug file:', err.message);
@@ -599,7 +595,7 @@ class PypdfService {
    */
   filterHeaders(text, headerPattern) {
     try {
-      console.log(`🔍 Original AI header pattern: ${headerPattern}`);
+      // // console.log(`🔍 Original AI header pattern: ${headerPattern}`);
       
       // Step 1: Handle multi-line headers by replacing \n with flexible whitespace
       let regexPattern = headerPattern.replace(/\n/g, '\\s*\\n\\s*');
@@ -628,7 +624,7 @@ class PypdfService {
       regexPattern = regexPattern.replace(/__SPACE_PATTERN__/g, '\\s+');
       regexPattern = regexPattern.replace(/__NEWLINE_PATTERN__/g, '\\s*\\n\\s*');
       
-      console.log(`🎯 Final header regex pattern: ${regexPattern}`);
+      // // console.log(`🎯 Final header regex pattern: ${regexPattern}`);
       
       const headerRegex = new RegExp(regexPattern, 'gims'); // Added 's' flag for . to match newlines
       const originalLength = text.length;
@@ -637,17 +633,17 @@ class PypdfService {
       const filteredText = text.replace(headerRegex, '');
       
       const removedChars = originalLength - filteredText.length;
-      console.log(`🧹 Header filtering successful: removed ${removedChars} characters`);
+      // // console.log(`🧹 Header filtering successful: removed ${removedChars} characters`);
       
       // Show examples of what was filtered (first few matches)
       const matches = text.match(headerRegex);
-      if (matches && matches.length > 0) {
-        console.log(`📋 Filtered header examples (first 3):`);
-        matches.slice(0, 3).forEach((match, index) => {
-          console.log(`  ${index + 1}. "${match.substring(0, 100)}${match.length > 100 ? '...' : ''}"`);
-        });
-        console.log(`  Total ${matches.length} header instances removed`);
-      }
+      // if (matches && matches.length > 0) {
+      //   // console.log(`📋 Filtered header examples (first 3):`);
+      //   matches.slice(0, 3).forEach((match, index) => {
+      //     // console.log(`  ${index + 1}. "${match.substring(0, 100)}${match.length > 100 ? '...' : ''}"`);
+      //   });
+      //   // console.log(`  Total ${matches.length} header instances removed`);
+      // }
       
       return filteredText;
     } catch (error) {
@@ -664,35 +660,35 @@ class PypdfService {
    * @returns {Array} Array of hierarchical section objects
    */
   extractSectionsFromPdf(text) {
-    console.log('📚 Starting hierarchical PDF section extraction...');
+    // // console.log('📚 Starting hierarchical PDF section extraction...');
     
     // Step 1: Identify Table of Contents positions
     const tocInfo = this.identifyTableOfContents(text);
-    console.log(`📖 Found ${tocInfo.length} Table of Contents sections`);
+    // // console.log(`📖 Found ${tocInfo.length} Table of Contents sections`);
     
     // Step 2: Find all numbered titles and their positions (excluding TOC areas)
     const numberedTitles = this.findNumberedTitles(text, tocInfo);
-    // console.log(`🔢 Found ${numberedTitles.length} numbered titles`);
+    // // console.log(`🔢 Found ${numberedTitles.length} numbered titles`);
     
     // Step 3: Handle pre-numbered content (everything before first numbered section, excluding TOC)
     const preNumberedSections = this.extractPreNumberedContent(text, numberedTitles, tocInfo);
-    // console.log(`📋 Pre-numbered sections: ${preNumberedSections.length}`);
+    // // console.log(`📋 Pre-numbered sections: ${preNumberedSections.length}`);
     
     // Step 4: Extract complete Table of Contents sections
     const tocSections = this.extractTableOfContentsSections(text, tocInfo, numberedTitles);
-    console.log(`📖 Extracted ${tocSections.length} complete TOC sections`);
+    // // console.log(`📖 Extracted ${tocSections.length} complete TOC sections`);
     
     // Step 5: Create hierarchical sections with proper content ranges
     const hierarchicalSections = this.createHierarchicalSections(text, numberedTitles);
-    // console.log(`🏗️ Hierarchical sections: ${hierarchicalSections.length}`);
+    // // console.log(`🏗️ Hierarchical sections: ${hierarchicalSections.length}`);
     
     // Step 6: Combine all sections in proper order
     const allSections = [...preNumberedSections, ...tocSections, ...hierarchicalSections];
-    // console.log(`✅ Total sections: ${allSections.length}`);
+    // // console.log(`✅ Total sections: ${allSections.length}`);
     
     // Step 7: Validate and clean up
     const finalSections = this.validateSections(allSections);
-    // console.log(`🧹 Final valid sections: ${finalSections.length}`);
+    // // console.log(`🧹 Final valid sections: ${finalSections.length}`);
     
     return finalSections;
   }
@@ -720,7 +716,7 @@ class PypdfService {
       const isTocTitle = tocPatterns.some(pattern => pattern.test(line));
       
       if (isTocTitle) {
-        console.log(`📖 Found TOC at line ${i}: "${line}"`);
+        // // console.log(`📖 Found TOC at line ${i}: "${line}"`);
         
         // Find TOC end position
         const tocEnd = this.findTocEndPosition(lines, i);
@@ -733,7 +729,7 @@ class PypdfService {
           endPosition: this.getLinePosition(text, tocEnd)
         });
         
-        console.log(`📖 TOC spans from line ${i} to line ${tocEnd}`);
+        // // console.log(`📖 TOC spans from line ${i} to line ${tocEnd}`);
       }
     }
     
@@ -761,7 +757,7 @@ class PypdfService {
         if (pattern.test(line)) {
           // Double check this isn't a TOC entry by looking at context
           if (!this.isTocEntry(lines, i)) {
-            console.log(`📖 TOC ends at line ${i-1}, next section: "${line}"`);
+            // console.log(`📖 TOC ends at line ${i-1}, next section: "${line}"`);
             return i - 1;
           }
         }
@@ -846,7 +842,7 @@ class PypdfService {
       };
       
       tocSections.push(tocSection);
-      console.log(`📖 Created TOC section: "${toc.title}" (${tocContent.length} chars)`);
+      // // console.log(`📖 Created TOC section: "${toc.title}" (${tocContent.length} chars)`);
     }
     
     return tocSections;
@@ -929,7 +925,7 @@ class PypdfService {
               originalLine: line
             });
             
-            console.log(`🔢 Found real section L${patternConfig.level}: ${numberPart} ${cleanTitle} (line ${i})`);
+            // console.log(`🔢 Found real section L${patternConfig.level}: ${numberPart} ${cleanTitle} (line ${i})`);
           }
           break; // Found a match, no need to check other patterns
         }
@@ -996,7 +992,7 @@ class PypdfService {
         const beforeToc = text.substring(0, toc.startPosition);
         const afterToc = text.substring(toc.endPosition + 1, firstNumberedPosition);
         preContent = beforeToc + afterToc;
-        console.log(`📋 Excluded TOC "${toc.title}" from pre-numbered content`);
+        // // console.log(`📋 Excluded TOC "${toc.title}" from pre-numbered content`);
       }
     }
     
@@ -1008,7 +1004,7 @@ class PypdfService {
     
     // Split pre-numbered content into logical sections (excluding TOC patterns)
     const sections = this.splitPreNumberedContent(preContent, true); // Pass flag to exclude TOC
-    // console.log(`📋 Pre-numbered content split into ${sections.length} sections`);
+    // // console.log(`📋 Pre-numbered content split into ${sections.length} sections`);
     
     return sections;
   }
@@ -1149,7 +1145,7 @@ class PypdfService {
       
       if (immediateChild) {
         // If there's an immediate child, this parent has no direct content
-        console.log(`📋 Parent "${currentTitle.number}" has immediate child "${immediateChild.number}" - no direct content`);
+        // // console.log(`📋 Parent "${currentTitle.number}" has immediate child "${immediateChild.number}" - no direct content`);
         content = '';
       } else {
         // Extract content between start and end
@@ -1170,7 +1166,7 @@ class PypdfService {
           const parentContentLines = lines.slice(contentStartLine, firstSubTitleLine);
           content = parentContentLines.join('\n').trim();
           
-          console.log(`📋 Parent "${currentTitle.number}" content ends before child "${firstSubTitle.number}"`);
+          // console.log(`📋 Parent "${currentTitle.number}" content ends before child "${firstSubTitle.number}"`);
         }
       }
       
@@ -1190,7 +1186,7 @@ class PypdfService {
       
       sections.push(section);
       
-      // console.log(`  📄 Section: [L${section.level}] ${section.number} ${section.title} (${finalContent ? `${finalContent.length} chars` : 'null content'})`);
+      // // console.log(`  📄 Section: [L${section.level}] ${section.number} ${section.title} (${finalContent ? `${finalContent.length} chars` : 'null content'})`);
     }
     
     return sections;
@@ -1232,7 +1228,7 @@ class PypdfService {
       // Final check: set empty content to null
       if (!section.content || section.content.length === 0) {
         section.content = null;
-        // console.log(`📝 Section "${section.title}" has no content, set to null`);
+        // // console.log(`📝 Section "${section.title}" has no content, set to null`);
       }
     });
     
@@ -1253,19 +1249,19 @@ class PypdfService {
       const debugFile = path.join(this.tempDir, `debug_${type}_text_${timestamp}.txt`);
       
       fs.writeFileSync(debugFile, text, 'utf8');
-      console.log(`🐛 DEBUG: Node.js ${type} text saved to ${debugFile}`);
-      console.log(`📏 ${type} text length: ${text.length} characters`);
+      // // console.log(`🐛 DEBUG: Node.js ${type} text saved to ${debugFile}`);
+      // // console.log(`📏 ${type} text length: ${text.length} characters`);
       
       if (type === 'original') {
-        console.log(`📄 First 500 characters preview:`);
-        console.log('-'.repeat(50));
-        console.log(text.substring(0, 500));
-        console.log('-'.repeat(50));
+        // // console.log(`📄 First 500 characters preview:`);
+        // // console.log('-'.repeat(50));
+        // // console.log(text.substring(0, 500));
+        // // console.log('-'.repeat(50));
       } else if (type === 'filtered') {
-        console.log(`🧹 Header filtering result preview (first 300 chars):`);
-        console.log('-'.repeat(50));
-        console.log(text.substring(0, 300));
-        console.log('-'.repeat(50));
+        // // console.log(`🧹 Header filtering result preview (first 300 chars):`);
+        // // console.log('-'.repeat(50));
+        // // console.log(text.substring(0, 300));
+        // // console.log('-'.repeat(50));
       }
     } catch (error) {
       console.error(`⚠️ Failed to save Node.js ${type} debug file:`, error.message);
@@ -1310,23 +1306,23 @@ class PypdfService {
       };
       
       fs.writeFileSync(debugFile, JSON.stringify(debugData, null, 2), 'utf8');
-      console.log(`🐛 DEBUG: Node.js hierarchical sections saved to ${debugFile}`);
-      // console.log(`📚 Total sections found: ${sections.length}`);
-      // console.log(`📊 Level distribution: L1:${debugData.sectionsByLevel.level1} L2:${debugData.sectionsByLevel.level2} L3:${debugData.sectionsByLevel.level3} L4:${debugData.sectionsByLevel.level4}`);
-      // console.log(`🎯 Source distribution: Pattern:${debugData.sectionsBySource.pattern} Pre-numbered:${debugData.sectionsBySource.preNumbered} TOC:${debugData.sectionsBySource.tableOfContents} Content:${debugData.sectionsBySource.content}`);
+      // // console.log(`🐛 DEBUG: Node.js hierarchical sections saved to ${debugFile}`);
+      // // console.log(`📚 Total sections found: ${sections.length}`);
+      // // console.log(`📊 Level distribution: L1:${debugData.sectionsByLevel.level1} L2:${debugData.sectionsByLevel.level2} L3:${debugData.sectionsByLevel.level3} L4:${debugData.sectionsByLevel.level4}`);
+      // // console.log(`🎯 Source distribution: Pattern:${debugData.sectionsBySource.pattern} Pre-numbered:${debugData.sectionsBySource.preNumbered} TOC:${debugData.sectionsBySource.tableOfContents} Content:${debugData.sectionsBySource.content}`);
       
       // Log hierarchical section summary
-      // console.log('📋 Hierarchical Section Summary:');
+      // // console.log('📋 Hierarchical Section Summary:');
       // sections.forEach((section, index) => {
       //   const indent = '  '.repeat(section.level);
       //   const number = section.number ? `${section.number} ` : '';
       //   const source = section.source === 'pre-numbered' ? '📄' : 
       //                  section.source === 'pattern' ? '🔢' : 
       //                  section.source === 'table-of-contents' ? '📖' : '📝';
-      //   console.log(`${indent}${index + 1}. [L${section.level}] ${source} ${number}${section.title}`);
+      //   // console.log(`${indent}${index + 1}. [L${section.level}] ${source} ${number}${section.title}`);
         
       //   if (index >= 19) { // Show first 20 sections
-      //     console.log(`  ... and ${sections.length - 20} more sections`);
+      //     // console.log(`  ... and ${sections.length - 20} more sections`);
       //     return;
       //   }
       // });
@@ -1346,12 +1342,12 @@ class PypdfService {
     try {
       const aiResult = await extractStudyNumberWithAI(text);
       if (aiResult && aiResult.studyNumber) {
-        console.log(`🤖 AI extracted Study Number: ${aiResult.studyNumber}`);
-        console.log(`🤖 AI detected header: ${aiResult.headerInfo ? aiResult.headerInfo.hasHeader : false}`);
+        // // console.log(`🤖 AI extracted Study Number: ${aiResult.studyNumber}`);
+        // // console.log(`🤖 AI detected header: ${aiResult.headerInfo ? aiResult.headerInfo.hasHeader : false}`);
         return aiResult;
       } else if (aiResult) {
         // AI ran but found no study number, still use header info if available
-        console.log('🤖 AI found no Study Number, trying regex...');
+        // // console.log('🤖 AI found no Study Number, trying regex...');
         const regexStudyNumber = await this.extractStudyNumberRegex(text);
         return {
           studyNumber: regexStudyNumber,
@@ -1376,7 +1372,7 @@ class PypdfService {
    * @returns {Promise<string|null>} Study Number if found, null otherwise
    */
   async extractStudyNumberRegex(text) {
-    console.log('🔍 Using regex Study Number extraction...');
+    // // console.log('🔍 Using regex Study Number extraction...');
     const patterns = [
       /Protocol\s+(?:Number\s*[:\-]?\s*)?([A-Z0-9\-]{3,20})/i,
       /Study\s+(?:Number\s*[:\-]?\s*)?([A-Z0-9\-]{3,20})/i,
@@ -1386,12 +1382,12 @@ class PypdfService {
     for (const pattern of patterns) {
       const match = text.match(pattern);
       if (match && match[1]) {
-        console.log(`🔎 Regex extracted Study Number: ${match[1]}`);
+        // // console.log(`🔎 Regex extracted Study Number: ${match[1]}`);
         return match[1].trim();
       }
     }
 
-    console.log('⚠️ No Study Number found in PDF text');
+    // // console.log('⚠️ No Study Number found in PDF text');
     return null;
   }
 
