@@ -1397,10 +1397,112 @@ class PypdfService {
 // Create singleton instance
 const pypdfService = new PypdfService();
 
+// 🔥 新增：CRF专用位置提取函数
+async function extractCrfPositions(fileBuffer, studyId = null) {
+  const { spawn } = require('child_process');
+  const fs = require('fs');
+  const path = require('path');
+  const os = require('os');
+
+  return new Promise((resolve, reject) => {
+    try {
+      // Create temporary file for PDF
+      const tempDir = path.join(__dirname, '../temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+      
+      const timestamp = Date.now();
+      const tempPdfPath = path.join(tempDir, `temp_crf_${timestamp}_${Math.random().toString(36).substr(2, 5)}.pdf`);
+      
+      // Write buffer to temporary file
+      fs.writeFileSync(tempPdfPath, fileBuffer);
+      
+      // Path to CRF position extractor script
+      const scriptPath = path.join(__dirname, 'crf_position_extractor.py');
+      const outputDir = tempDir;
+      
+      // Prepare arguments
+      const args = [scriptPath, tempPdfPath, outputDir];
+      if (studyId) {
+        args.push(studyId);
+      }
+      
+      console.log('🔍 Calling CRF position extractor:', scriptPath);
+      
+      // Spawn Python process
+      const pythonProcess = spawn('python3', args);
+      
+      let stdout = '';
+      let stderr = '';
+      
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+      
+      pythonProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+      
+      pythonProcess.on('close', (code) => {
+        // Clean up temporary PDF file
+        try {
+          fs.unlinkSync(tempPdfPath);
+        } catch (cleanupErr) {
+          console.warn('⚠️ Failed to clean up temp CRF file:', cleanupErr.message);
+        }
+        
+        if (code !== 0) {
+          console.error('❌ CRF position extractor failed with code:', code);
+          console.error('❌ CRF position extractor stderr:', stderr);
+          reject(new Error(`CRF position extraction failed with exit code ${code}: ${stderr}`));
+          return;
+        }
+        
+        try {
+          // Parse JSON result
+          const result = JSON.parse(stdout);
+          
+          if (result.success) {
+            console.log(`✅ CRF position extraction completed for Study ${studyId || 'unknown'}`);
+            console.log(`📊 CRF positions: ${result.metadata.total_chars} chars, ${result.metadata.total_words} words, ${result.metadata.total_text_lines} lines`);
+            resolve(result);
+          } else {
+            console.error('❌ CRF position extraction failed:', result.error);
+            reject(new Error(`CRF position extraction failed: ${result.error}`));
+          }
+        } catch (parseErr) {
+          console.error('❌ Failed to parse CRF position extraction result:', parseErr);
+          console.error('❌ Raw stdout:', stdout);
+          reject(new Error(`Failed to parse CRF position extraction result: ${parseErr.message}`));
+        }
+      });
+      
+      pythonProcess.on('error', (err) => {
+        // Clean up temporary PDF file
+        try {
+          fs.unlinkSync(tempPdfPath);
+        } catch (cleanupErr) {
+          console.warn('⚠️ Failed to clean up temp CRF file:', cleanupErr.message);
+        }
+        
+        console.error('❌ Failed to spawn CRF position extractor process:', err);
+        reject(new Error(`Failed to spawn CRF position extractor: ${err.message}`));
+      });
+      
+    } catch (err) {
+      console.error('❌ CRF position extraction setup failed:', err);
+      reject(new Error(`CRF position extraction setup failed: ${err.message}`));
+    }
+  });
+}
+
 module.exports = {
   pypdfService,
   processPdfWithPypdf: (fileBuffer) => pypdfService.processPdfWithPypdf(fileBuffer),
   formatResultForDatabase: (pypdfResult) => pypdfService.formatResultForDatabase(pypdfResult),
   // 🔥 新增：CRF/SAP专用格式化函数（跳过Assessment Schedule识别）
-  formatResultForCrfSap: (pypdfResult) => pypdfService.formatResultForCrfSap(pypdfResult)
+  formatResultForCrfSap: (pypdfResult) => pypdfService.formatResultForCrfSap(pypdfResult),
+  // 🔥 新增：CRF专用位置提取函数
+  extractCrfPositions
 };

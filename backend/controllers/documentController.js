@@ -2,7 +2,7 @@
 const Document = require('../models/documentModel');
 const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
-const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService } = require('../services/pypdfService');
+const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService, extractCrfPositions } = require('../services/pypdfService');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
 const { performADaMAnalysis, generateOutputsFromDomains } = require('../services/adamAnalysisService');
 
@@ -10,11 +10,11 @@ const { performADaMAnalysis, generateOutputsFromDomains } = require('../services
 // 上传文档处理函数（Study-level with file slots）
 async function uploadDocument(req, res) {
   try {
-    // // console.log('📥 上传请求详情:', {
-    //   hasFile: !!req.file,
-    //   body: req.body,
-    //   headers: req.headers['content-type']
-    // });
+    console.log('📥 上传请求详情:', {
+      hasFile: !!req.file,
+      body: req.body,
+      headers: req.headers['content-type']
+    });
     
     if (!req.file) {
       console.error('❌ 没有接收到文件');
@@ -26,7 +26,7 @@ async function uploadDocument(req, res) {
 
     const { documentType, studyNumber: explicitStudyNumber, fileType } = req.body; // fileType: protocol|crf|sap
     
-    // // console.log('收到Clinical Protocol文件:', req.file.originalname, '类型:', req.file.mimetype);
+    console.log('收到Clinical Protocol文件:', req.file.originalname, '类型:', req.file.mimetype);
 
     // 解析文档内容
     let parseResult = {
@@ -46,30 +46,30 @@ async function uploadDocument(req, res) {
       const isProtocol = !fileType || fileType.toLowerCase() === 'protocol';
       
                 if (req.file.mimetype === 'application/pdf') {
-        // // console.log('📄 Starting PDF processing...');
+        console.log('📄 Starting PDF processing...');
             const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         
         if (isProtocol) {
           // Protocol使用完整解析（包含AI）
             parseResult = await formatResultForDatabase(pypdfResult);
-          // // console.log(`✅ Protocol PDF processing completed - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
+          console.log(`✅ Protocol PDF processing completed - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
         } else {
           // CRF/SAP使用专用解析（跳过AI）
           parseResult = await formatResultForCrfSap(pypdfResult);
-          // // console.log(`✅ ${fileType.toUpperCase()} PDF processing completed (no AI) - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
+          console.log(`✅ ${fileType.toUpperCase()} PDF processing completed (no AI) - Pages: ${pypdfResult.total_pages}, Text length: ${parseResult.extractedText.length}`);
         }
                     
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        // // console.log('📝 Starting Word document processing...');
+        console.log('📝 Starting Word document processing...');
         
         if (isProtocol) {
           // Protocol使用完整解析（包含AI）
         parseResult = await parseWordDocumentStructure(req.file.buffer);
-          // // console.log(`✅ Protocol Word解析完成 - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
+          console.log(`✅ Protocol Word解析完成 - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
         } else {
           // CRF/SAP使用专用解析（跳过AI）
           parseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true });
-          // // console.log(`✅ ${fileType.toUpperCase()} Word解析完成 (no AI) - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
+          console.log(`✅ ${fileType.toUpperCase()} Word解析完成 (no AI) - 章节: ${parseResult.parseInfo.sectionsCount}, 表格: ${parseResult.parseInfo.tablesCount}`);
         }
         
       } else if (req.file.mimetype === 'application/msword') {
@@ -77,7 +77,7 @@ async function uploadDocument(req, res) {
         parseResult.extractedText = req.file.buffer.toString('utf8');
         parseResult.parseInfo.parseMethod = 'doc-simple';
 
-        // // console.log('📄 老版本Word解析完成');
+        console.log('📄 老版本Word解析完成');
       }
     } catch (parseError) {
       console.warn('文档解析失败:', parseError.message);
@@ -139,14 +139,14 @@ async function uploadDocument(req, res) {
     const savedStudy = await study.save();
 
     console.log('✅ Study saved successfully, ID:', savedStudy._id);
-    // // console.log(`📊 Saved data structure:`, {
-    //   sections: parseResult.parseInfo.sectionsCount,
-    //   tables: parseResult.parseInfo.tablesCount,
-    //   hasStructuredContent: parseResult.parseInfo.hasStructuredContent,
-    //   hasAssessmentSchedule: parseResult.parseInfo.hasAssessmentSchedule,
-    //   method: parseResult.parseInfo.parseMethod,
-    //   studyNumber: savedStudy.studyNumber || 'Not found'
-    // });
+    console.log(`📊 Saved data structure:`, {
+      sections: parseResult.parseInfo.sectionsCount,
+      tables: parseResult.parseInfo.tablesCount,
+      hasStructuredContent: parseResult.parseInfo.hasStructuredContent,
+      hasAssessmentSchedule: parseResult.parseInfo.hasAssessmentSchedule,
+      method: parseResult.parseInfo.parseMethod,
+      studyNumber: savedStudy.studyNumber || 'Not found'
+    });
     
     // 🔥 成本估算快照（SDTM部分）
     try {
@@ -197,7 +197,7 @@ async function uploadDocument(req, res) {
         nestedCost.createdAt = new Date();
         savedStudy.CostEstimateDetails.sdtmTableInput = nestedCost;
         await savedStudy.save();
-        // // console.log('💾 已保存SDTM成本估算快照');
+        console.log('💾 已保存SDTM成本估算快照');
       }
     } catch (costErr) {
       console.warn('⚠️ 生成SDTM成本估算快照失败:', costErr.message);
@@ -465,7 +465,7 @@ async function confirmSDTMAnalysis(req, res) {
     const { id } = req.params;
     const { procedures, mappings, summary } = req.body;
 
-    // // console.log(`确认Study ${id} 的SDTM分析结果`);
+    console.log(`确认Study ${id} 的SDTM分析结果`);
 
     const study = await Study.findById(id);
     if (!study) {
@@ -610,7 +610,7 @@ async function confirmSDTMAnalysis(req, res) {
 
     await study.save();
 
-    console.log('✅ Procedure → SDTM domain mapping saved successfully, Study ID:', study._id);
+    console.log('SDTM分析结果已确认并保存');
 
     res.json({
       success: true,
@@ -639,7 +639,7 @@ async function confirmADaMAnalysis(req, res) {
     const { id } = req.params;
     const { mappings, summary } = req.body;
 
-    // // console.log(`确认Study ${id} 的ADaM分析结果`);
+    console.log(`确认Study ${id} 的ADaM分析结果`);
 
     const study = await Study.findById(id);
     if (!study) {
@@ -744,14 +744,14 @@ async function confirmADaMAnalysis(req, res) {
       costEstimate.createdAt = new Date();
       pced.adamTableInput = costEstimate;
       
-      // // console.log('💾 ADaM成本估算快照已生成并保存到adamTableInput');
+      console.log('💾 ADaM成本估算快照已生成并保存到adamTableInput');
     } catch (calcErr) {
       console.warn('⚠️ 确认后生成ADaM成本估算失败:', calcErr.message);
     }
 
     await study.save();
 
-    console.log('✅ ADaM domain mapping saved successfully, Study ID:', study._id);
+    console.log('ADaM分析结果已确认并保存');
 
     res.json({
       success: true,
@@ -780,7 +780,7 @@ async function updateProjectSelection(req, res) {
     const { id } = req.params;
     const { projectSelectionDetails } = req.body;
 
-    // // console.log(`更新Study ${id} 的项目选择详情`);
+    console.log(`更新Study ${id} 的项目选择详情`);
 
     const study = await Study.findById(id);
     if (!study) {
@@ -818,7 +818,7 @@ async function updateProjectSelection(req, res) {
 
     await study.save();
 
-    // // console.log('项目选择详情已更新并保存');
+    console.log('项目选择详情已更新并保存');
 
     res.json({
       success: true,
@@ -865,7 +865,7 @@ async function markTaskAsStarted(req, res) {
     
     await study.save();
     
-    // // console.log(`✅ Task ${taskKey} marked as started for study ${id}`);
+    console.log(`✅ Task ${taskKey} marked as started for study ${id}`);
     res.json({ 
       success: true, 
       message: `Task ${taskKey} marked as started`, 
@@ -906,7 +906,7 @@ async function markTaskAsDone(req, res) {
     
     await study.save();
     
-    // // console.log(`✅ Task ${taskKey} marked as completed for study ${id}`);
+    console.log(`✅ Task ${taskKey} marked as completed for study ${id}`);
     res.json({ 
       success: true, 
       message: `Task ${taskKey} marked as completed`, 
@@ -950,23 +950,23 @@ async function analyzeDocumentForSdtm(req, res) {
     }
     const assess = study.files?.protocol?.uploadExtraction?.assessmentSchedule || null;
 
-    // // console.log('🎯 Start unified SDTM analysis for both Word and PDF...');
+    console.log('🎯 Start unified SDTM analysis for both Word and PDF...');
     
     // Step 1: Intelligently prepare procedures array
     let procedures = [];
     
     // Check if this is a PDF document with pre-extracted procedures
     if (study.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
-      // // console.log('📄 PDF path: Using pre-extracted procedures from database...');
+      console.log('📄 PDF path: Using pre-extracted procedures from database...');
       procedures = study.CostEstimateDetails.sdtmAnalysis.procedures;
-      // // console.log(`✅ Found ${procedures.length} pre-extracted procedures for PDF`);
+      // console.log(`✅ Found ${procedures.length} pre-extracted procedures for PDF`);
     }
     // Otherwise, use Word HTML extraction flow
     else if (assess && assess.htmlContent) {
-      // // console.log('📝 Word path: Extracting procedures from HTML Assessment Schedule...');
+      console.log('📝 Word path: Extracting procedures from HTML Assessment Schedule...');
       const { extractProceduresFromSchedule } = require('../services/sdtmAnalysisService');
       procedures = extractProceduresFromSchedule(assess);
-      // // console.log(`✅ Extracted ${procedures.length} procedures from Word HTML`);
+      // console.log(`✅ Extracted ${procedures.length} procedures from Word HTML`);
     }
     else {
       return res.status(400).json({ 
@@ -984,14 +984,14 @@ async function analyzeDocumentForSdtm(req, res) {
     }
 
     // Step 2: Call unified AI analysis service (same for both Word and PDF)
-    // // console.log(`🤖 Calling unified AI analysis with ${procedures.length} procedures...`);
+    console.log(`🤖 Calling unified AI analysis with ${procedures.length} procedures...`);
     const mappingResult = await analyzeSDTMMapping(procedures);
 
     // Step 3: Merge results appropriately based on document type
     let sdtmAnalysis;
     if (study.CostEstimateDetails?.sdtmAnalysis?.procedures?.length > 0) {
       // PDF path: Keep existing procedures, only add mappings & summary
-      // // console.log('📄 PDF: Preserving existing procedures, adding AI mappings & summary');
+      // console.log('📄 PDF: Preserving existing procedures, adding AI mappings & summary');
       sdtmAnalysis = {
         ...study.CostEstimateDetails.sdtmAnalysis, // Preserve existing procedures
         ...mappingResult, // Add new mappings and summary
@@ -999,7 +999,7 @@ async function analyzeDocumentForSdtm(req, res) {
       };
     } else {
       // Word path: Include procedures from extraction
-      // // console.log('📝 Word: Adding extracted procedures along with AI mappings & summary');
+      // console.log('📝 Word: Adding extracted procedures along with AI mappings & summary');
       sdtmAnalysis = {
         ...mappingResult,
         procedures: procedures, // Word needs procedures from extraction
@@ -1052,8 +1052,8 @@ async function analyzeDocumentForSdtm(req, res) {
 
     await latestStudy.save();
 
-    // // console.log('✅ Unified SDTM analysis completed');
-    // // console.log(`📊 Analysis results: ${sdtmAnalysis.procedures?.length || 0} procedures, ${sdtmAnalysis.mappings?.size || 0} mappings`);
+    console.log('✅ Unified SDTM analysis completed');
+    // console.log(`📊 Analysis results: ${sdtmAnalysis.procedures?.length || 0} procedures, ${sdtmAnalysis.mappings?.size || 0} mappings`);
     res.json({ success: true, message: 'SDTM分析完成', data: { sdtmAnalysis } });
   } catch (error) {
     console.error('延迟执行SDTM分析失败:', error);
@@ -1071,7 +1071,7 @@ async function analyzeDocumentForAdam(req, res) {
       return res.status(404).json({ success: false, message: 'Study 不存在' });
     }
 
-    // // console.log('🎯 开始ADaM分析，基于SDTM分析结果...');
+    console.log('🎯 开始ADaM分析，基于SDTM分析结果...');
 
     // 检查SDTM分析是否完成
     const sdtmAnalysis = study.CostEstimateDetails?.sdtmAnalysis;
@@ -1082,16 +1082,16 @@ async function analyzeDocumentForAdam(req, res) {
       });
     }
 
-    // // console.log('✅ SDTM分析结果验证通过，开始ADaM分析...');
+    console.log('✅ SDTM分析结果验证通过，开始ADaM分析...');
 
     // 🔥 新增：提取protocol endpoints信息
     const protocolEndpoints = study.files?.protocol?.uploadExtraction?.endpoints || [];
-    // // console.log(`📋 已载入协议Endpoints用于ADaM分析: ${protocolEndpoints.length} 项`);
+    console.log(`📋 已载入协议Endpoints用于ADaM分析: ${protocolEndpoints.length} 项`);
 
     // 调用ADaM分析服务
     const adamResult = await performADaMAnalysis(sdtmAnalysis, protocolEndpoints);
     
-    // // console.log('🔍 [DEBUG] ADaM分析结果:', { success: adamResult.success, mappingsCount: adamResult.mappings?.size || 0, totalDomains: adamResult.summary?.total_adam_domains || 0 });
+    // console.log('🔍 [DEBUG] ADaM分析结果:', { success: adamResult.success, mappingsCount: adamResult.mappings?.size || 0, totalDomains: adamResult.summary?.total_adam_domains || 0 });
 
     // 保存ADaM分析结果到数据库
     const latestStudy = await Study.findById(id);
@@ -1160,19 +1160,19 @@ async function analyzeDocumentForAdam(req, res) {
         pced.adamTableInput = pced.adamTableInput || {};
         pced.adamTableInput['ADaM Datasets Production and Validation'] = { units, estimatedCosts, notes, subtotal };
         pced.adamTableInput.createdAt = new Date();
-        // // console.log('💾 已生成并保存ADaM成本估算快照到adamTableInput');
+        console.log('💾 已生成并保存ADaM成本估算快照到adamTableInput');
 
       } catch (costErr) {
         console.warn('⚠️ 生成ADaM成本估算快照失败:', costErr.message);
       }
       
-      // // console.log('✅ ADaM分析状态已更新为: adam_ai_analysis_done');
+      console.log('✅ ADaM分析状态已更新为: adam_ai_analysis_done');
     }
 
     await latestStudy.save();
 
-    // // console.log('✅ ADaM分析完成并保存到数据库');
-    // // console.log(`📊 ADaM分析结果: ${adamResult.mappings?.size || 0} 个映射, ${adamResult.summary?.unique_adam_domains?.length || 0} 个ADaM域`);
+    console.log('✅ ADaM分析完成并保存到数据库');
+    // console.log(`📊 ADaM分析结果: ${adamResult.mappings?.size || 0} 个映射, ${adamResult.summary?.unique_adam_domains?.length || 0} 个ADaM域`);
 
     res.json({ 
       success: true, 
@@ -1252,13 +1252,13 @@ async function updateUnits(req, res) {
       sdtmSection.estimatedCosts = estimatedCosts;
       sdtmSection.subtotal = subtotal;
       
-      // // console.log('🔄 已同步更新 SDTM section:', { units: sdtmSection.units, estimatedCosts, subtotal });
+      console.log('🔄 已同步更新 SDTM section:', { units: sdtmSection.units, estimatedCosts, subtotal });
     }
 
     // 保存到数据库
     await study.save();
 
-    // // console.log(`✅ 已更新Study ${id} 的Units:`, units);
+    console.log(`✅ 已更新Study ${id} 的Units:`, units);
 
     res.json({
       success: true,
@@ -1269,7 +1269,7 @@ async function updateUnits(req, res) {
     });
 
   } catch (error) {
-    // console.error('❌ 更新Units失败:', error);
+    console.error('❌ 更新Units失败:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to update units: ' + error.message
@@ -1282,7 +1282,7 @@ async function deleteDocument(req, res) {
   try {
     const { id } = req.params;
     
-    // // console.log('🗑️ 删除Study请求:', id);
+    console.log('🗑️ 删除Study请求:', id);
     
     const deletedStudy = await Study.findByIdAndDelete(id);
     
@@ -1293,10 +1293,10 @@ async function deleteDocument(req, res) {
       });
     }
     
-    // // console.log('✅ Study删除成功:', {
-    //   id: deletedStudy._id,
-    //   studyNumber: deletedStudy.studyNumber
-    // });
+    console.log('✅ Study删除成功:', {
+      id: deletedStudy._id,
+      studyNumber: deletedStudy.studyNumber
+    });
     
     res.json({ 
       success: true, 
@@ -1347,13 +1347,37 @@ async function uploadCrfFile(req, res) {
     };
 
     // 解析CRF文件内容（PDF/Word），不进行 assessmentSchedule 识别
+    // 初始化form数据结构
+    let formData = { crfFormList: {}, crfFormName: { names: [], total_forms: 0 } };
+    
     try {
       if (req.file.mimetype === 'application/pdf') {
-        // // console.log('📄 开始解析CRF PDF文件...');
+        console.log('📄 开始解析CRF PDF文件...');
         const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         crfParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用CRF专用解析
+        
+        // 🔥 新增：提取CRF PDF的詳細位置信息並保存JSON文件
+        try {
+          console.log('🔍 开始提取CRF位置信息...');
+          const positionResult = await extractCrfPositions(req.file.buffer, id);
+          console.log(`✅ CRF位置提取完成 - 保存文件: ${positionResult.saved_file || 'temp directory'}`);
+          console.log(`📊 CRF統計: ${positionResult.metadata.total_words} 單詞, ${positionResult.metadata.total_forms || 0} 表單`);
+          
+          // 提取form信息
+          if (positionResult.forms) {
+            formData = positionResult.forms;
+            console.log(`📋 CRF Forms 提取: ${formData.crfFormName.total_forms} 個表單`);
+            if (formData.crfFormName.total_forms > 0) {
+              console.log(`📋 Form Names: ${formData.crfFormName.names.join(', ')}`);
+            }
+          }
+        } catch (positionErr) {
+          console.warn('⚠️ CRF位置提取失败，但不影響正常上传:', positionErr.message);
+          // 位置提取失败不影响正常的文件上传流程
+        }
+        
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        // // console.log('📝 开始解析CRF Word文档...');
+        console.log('📝 开始解析CRF Word文档...');
         crfParseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true }); // 🔥 CRF跳过AI
       } else if (req.file.mimetype === 'application/msword') {
         crfParseResult.extractedText = req.file.buffer.toString('utf8');
@@ -1376,7 +1400,7 @@ async function uploadCrfFile(req, res) {
         crfParseResult = crfAdapted;
       }
 
-      // console.log(`✅ CRF解析完成 - 章节: ${crfParseResult.parseInfo.sectionsCount}, 表格: ${crfParseResult.parseInfo.tablesCount}`);
+      console.log(`✅ CRF解析完成 - 章节: ${crfParseResult.parseInfo.sectionsCount}, 表格: ${crfParseResult.parseInfo.tablesCount}`);
     } catch (parseErr) {
       console.warn('⚠️ CRF文档解析失败，将以基础元数据保存:', parseErr.message);
       // 保持 crfParseResult 为默认值，继续正常上传
@@ -1393,19 +1417,15 @@ async function uploadCrfFile(req, res) {
           'files.crf.fileSize': req.file.size,
           'files.crf.mimeType': req.file.mimetype,
           'files.crf.uploadedAt': crfUploadedAt,
-          'files.crf.uploadExtraction': {
-            extractedText: crfParseResult.extractedText,
-            sectionedText: crfParseResult.sectionedText,
-            tables: crfParseResult.tables,
-            assessmentSchedule: null
+          'files.crf.crfUploadResult': {
+            crfFormList: formData?.crfFormList || {},
+            crfFormName: formData?.crfFormName || { names: [], total_forms: 0 }
           }
         }
       },
       { new: true }
     );
 
-    console.log('✅ CRF saved successfully, Study ID:', study._id);
-    
     return res.json({
       success: true,
       message: 'Uploaded CRF successfully',
@@ -1415,12 +1435,9 @@ async function uploadCrfFile(req, res) {
         originalName: req.file.originalname,
         fileSize: req.file.size,
         uploadedAt: crfUploadedAt,
-        parseInfo: crfParseResult.parseInfo || {
-          hasStructuredContent: false,
-          sectionsCount: 0,
-          tablesCount: 0,
-          parseMethod: 'raw-text',
-          hasAssessmentSchedule: false
+        crfUploadResult: {
+          crfFormList: formData?.crfFormList || {},
+          crfFormName: formData?.crfFormName || { names: [], total_forms: 0 }
         }
       }
     });
@@ -1463,11 +1480,11 @@ async function uploadSapFile(req, res) {
     // 解析SAP文件内容（PDF/Word），不进行 assessmentSchedule 识别
     try {
       if (req.file.mimetype === 'application/pdf') {
-        // console.log('📄 开始解析SAP PDF文件...');
+        console.log('📄 开始解析SAP PDF文件...');
         const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         sapParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用SAP专用解析
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        // console.log('📝 开始解析SAP Word文档...');
+        console.log('📝 开始解析SAP Word文档...');
         sapParseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true }); // 🔥 SAP跳过AI
       } else if (req.file.mimetype === 'application/msword') {
         sapParseResult.extractedText = req.file.buffer.toString('utf8');
@@ -1490,7 +1507,7 @@ async function uploadSapFile(req, res) {
         sapParseResult = sapAdapted;
       }
 
-      // console.log(`✅ SAP解析完成 - 章节: ${sapParseResult.parseInfo.sectionsCount}, 表格: ${sapParseResult.parseInfo.tablesCount}`);
+      console.log(`✅ SAP解析完成 - 章节: ${sapParseResult.parseInfo.sectionsCount}, 表格: ${sapParseResult.parseInfo.tablesCount}`);
     } catch (parseErr) {
       console.warn('⚠️ SAP文档解析失败，将以基础元数据保存:', parseErr.message);
       // 保持 sapParseResult 为默认值，继续正常上传
@@ -1517,8 +1534,6 @@ async function uploadSapFile(req, res) {
       },
       { new: true }
     );
-
-    console.log('✅ SAP saved successfully, Study ID:', study._id);
 
     return res.json({
       success: true,
@@ -1568,7 +1583,7 @@ async function generateAdamToOutputTraceability(req, res) {
   try {
     const { id } = req.params; // Study ID
     
-    // // console.log('🎯 开始生成ADaM到输出的可追溯性数据...');
+    console.log('🎯 开始生成ADaM到输出的可追溯性数据...');
     
     // 1. 获取Study并提取已确认的ADaM域
     const study = await Study.findById(id);
@@ -1580,12 +1595,12 @@ async function generateAdamToOutputTraceability(req, res) {
     }
     
     // 🔥 调试：检查完整的数据路径
-    // // console.log('🔍 [DEBUG] CostEstimateDetails:', study.CostEstimateDetails);
-    // // console.log('🔍 [DEBUG] userConfirmedAdam:', study.CostEstimateDetails?.userConfirmedAdam);
-    // // console.log('🔍 [DEBUG] userConfirmedAdam.summary:', study.CostEstimateDetails?.userConfirmedAdam?.summary);
+    console.log('🔍 [DEBUG] CostEstimateDetails:', study.CostEstimateDetails);
+    console.log('🔍 [DEBUG] userConfirmedAdam:', study.CostEstimateDetails?.userConfirmedAdam);
+    console.log('🔍 [DEBUG] userConfirmedAdam.summary:', study.CostEstimateDetails?.userConfirmedAdam?.summary);
     
     const adamDomains = study.CostEstimateDetails?.userConfirmedAdam?.summary?.unique_adam_domains;
-    // // console.log('🔍 [DEBUG] 提取到的adamDomains:', adamDomains);
+    console.log('🔍 [DEBUG] 提取到的adamDomains:', adamDomains);
     
     if (!adamDomains || adamDomains.length === 0) {
       console.error('❌ 没有找到确认的ADaM域数据');
@@ -1595,11 +1610,11 @@ async function generateAdamToOutputTraceability(req, res) {
       });
     }
     
-    // // console.log(`📊 找到 ${adamDomains.length} 个已确认的ADaM域:`, adamDomains);
+    console.log(`📊 找到 ${adamDomains.length} 个已确认的ADaM域:`, adamDomains);
     
     // 🔥 新增：提取protocol endpoints信息
     const protocolEndpoints = study.files?.protocol?.uploadExtraction?.endpoints || [];
-    // // console.log(`📋 已载入协议Endpoints: ${protocolEndpoints.length} 项`);
+    console.log(`📋 已载入协议Endpoints: ${protocolEndpoints.length} 项`);
     
     // 🔥 阶段1：初始化TFL生成状态为 success: false
     const initializePayload = {
@@ -1620,7 +1635,7 @@ async function generateAdamToOutputTraceability(req, res) {
     };
     
     await Study.findByIdAndUpdate(id, { $set: initializePayload }, { new: true });
-    // // console.log('✅ 已初始化TFL生成状态 (success: false)');
+    console.log('✅ 已初始化TFL生成状态 (success: false)');
     
     // 2. 调用AI服务生成TFL清单（传入endpoints信息）
     const tflResult = await generateOutputsFromDomains(adamDomains, protocolEndpoints);
@@ -1657,7 +1672,7 @@ async function generateAdamToOutputTraceability(req, res) {
       }
     });
     
-    // // console.log('📈 TFL统计结果:', summary);
+    console.log('📈 TFL统计结果:', summary);
     
     // 🔥 阶段2：更新TFL生成状态为 success: true，并保存完整结果
     const finalPayload = {
@@ -1672,7 +1687,7 @@ async function generateAdamToOutputTraceability(req, res) {
     
     await Study.findByIdAndUpdate(id, { $set: finalPayload }, { new: true });
     
-    // // console.log('✅ TFL可追溯性数据已成功存储到数据库 (success: true)');
+    console.log('✅ TFL可追溯性数据已成功存储到数据库 (success: true)');
     
     // 5. 返回成功响应
     res.json({
@@ -1702,8 +1717,8 @@ async function saveDataFlowTraceability(req, res) {
     const { id } = req.params; // Study ID
     const { mappings, stage, hasSDTM, hasADaM } = req.body;
     
-    // // console.log(`🔄 保存数据流可追溯性 (${stage} 阶段)...`);
-    // // console.log(`📊 收到 ${mappings?.length || 0} 个映射项`);
+    console.log(`🔄 保存数据流可追溯性 (${stage} 阶段)...`);
+    console.log(`📊 收到 ${mappings?.length || 0} 个映射项`);
     
     // 1. 获取Study
     const study = await Study.findById(id);
@@ -1729,7 +1744,7 @@ async function saveDataFlowTraceability(req, res) {
     
     await Study.findByIdAndUpdate(id, { $set: updatePayload }, { new: true });
     
-    // // console.log(`✅ 数据流可追溯性已保存 (${stage} 阶段)`);
+    console.log(`✅ 数据流可追溯性已保存 (${stage} 阶段)`);
     
     // 4. 返回成功响应
     res.json({

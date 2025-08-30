@@ -64,6 +64,19 @@ const FileSlotSchema = new mongoose.Schema({
   }
 }, { _id: false });
 
+// CRF-specific file slot schema - 专用于CRF文件
+const CrfFileSlotSchema = new mongoose.Schema({
+  uploaded: { type: Boolean, default: false },
+  originalName: { type: String },
+  fileSize: { type: Number },
+  mimeType: { type: String },
+  uploadedAt: { type: Date },
+  crfUploadResult: {
+    crfFormList: { type: mongoose.Schema.Types.Mixed, default: {} },
+    crfFormName: { type: mongoose.Schema.Types.Mixed, default: {} }
+  }
+}, { _id: false });
+
 // Cost estimate details schema (kept compatible with existing structure)
 const CostEstimateDetailsSchema = new mongoose.Schema({
   projectSelection: {
@@ -151,7 +164,7 @@ const StudySchema = new mongoose.Schema({
   // Files grouped by slots. Add more slots as needed (icf, csr, etc.)
   files: {
     protocol: { type: FileSlotSchema, default: {} },
-    crf: { type: FileSlotSchema, default: {} },
+    crf: { type: CrfFileSlotSchema, default: {} },
     sap: { type: FileSlotSchema, default: {} }
   },
 
