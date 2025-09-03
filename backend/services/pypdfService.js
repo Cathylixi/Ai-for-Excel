@@ -28,7 +28,7 @@ class PypdfService {
   ensureTempDir() {
     if (!fs.existsSync(this.tempDir)) {
       fs.mkdirSync(this.tempDir, { recursive: true });
-      // // console.log(`📁 Created temporary directory: ${this.tempDir}`);
+      console.log(`📁 Created temporary directory: ${this.tempDir}`);
     }
   }
 
@@ -1497,6 +1497,107 @@ async function extractCrfPositions(fileBuffer, studyId = null) {
   });
 }
 
+// 🔥 新增：CRF专用词位置提取函数（简化版）
+async function extractCrfWordsOnly(fileBuffer, studyId = null) {
+  const { spawn } = require('child_process');
+  const fs = require('fs');
+  const path = require('path');
+
+  return new Promise((resolve, reject) => {
+    try {
+      // Create temporary file for PDF
+      const tempDir = path.join(__dirname, '../temp');
+      if (!fs.existsSync(tempDir)) {
+        fs.mkdirSync(tempDir, { recursive: true });
+      }
+
+      const timestamp = Date.now();
+      const randomSuffix = Math.random().toString(36).substring(7);
+      const tempFileName = `temp_crf_words_${timestamp}_${randomSuffix}.pdf`;
+      const tempFilePath = path.join(tempDir, tempFileName);
+
+      // Write buffer to temporary file
+      fs.writeFileSync(tempFilePath, fileBuffer);
+
+      // Prepare arguments for Python script
+      const pythonScript = path.join(__dirname, 'crf_words_extractor.py');
+      const outputDir = tempDir;
+      const args = [pythonScript, tempFilePath, outputDir];
+      
+      if (studyId) {
+        args.push(studyId);
+      }
+
+      console.log(`🐍 Calling CRF Words Python script: python3 ${args.join(' ')}`);
+
+      // Execute Python script
+      const pythonProcess = spawn('python3', args, {
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env }
+      });
+
+      let stdout = '';
+      let stderr = '';
+
+      pythonProcess.stdout.on('data', (data) => {
+        stdout += data.toString();
+      });
+
+      pythonProcess.stderr.on('data', (data) => {
+        stderr += data.toString();
+      });
+
+      pythonProcess.on('close', (code) => {
+        // Clean up temporary file
+        try {
+          if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+          }
+        } catch (cleanupErr) {
+          console.warn('⚠️ Failed to cleanup temp file:', cleanupErr.message);
+        }
+
+        if (code === 0) {
+          try {
+            // Parse the JSON result from stdout
+            const result = JSON.parse(stdout.trim());
+            console.log(`✅ CRF words extraction completed successfully`);
+            console.log(`📊 Results: ${result.metadata?.total_words || 0} words from ${result.metadata?.total_pages || 0} pages`);
+            resolve(result);
+          } catch (parseErr) {
+            console.error('❌ Failed to parse Python script output:', parseErr.message);
+            console.error('📄 Raw stdout:', stdout);
+            reject(new Error(`Failed to parse extraction results: ${parseErr.message}`));
+          }
+        } else {
+          console.error(`❌ Python script failed with exit code ${code}`);
+          console.error('📄 stderr:', stderr);
+          console.error('📄 stdout:', stdout);
+          reject(new Error(`CRF words extraction failed: ${stderr || 'Unknown error'}`));
+        }
+      });
+
+      pythonProcess.on('error', (err) => {
+        // Clean up temporary file
+        try {
+          if (fs.existsSync(tempFilePath)) {
+            fs.unlinkSync(tempFilePath);
+          }
+        } catch (cleanupErr) {
+          console.warn('⚠️ Failed to cleanup temp file:', cleanupErr.message);
+        }
+        
+        console.error('❌ Failed to spawn Python process:', err.message);
+        reject(new Error(`Failed to start CRF words extraction: ${err.message}`));
+      });
+
+    } catch (error) {
+      console.error('❌ CRF words extraction setup failed:', error.message);
+      reject(error);
+    }
+  });
+}
+
 module.exports = {
   pypdfService,
   processPdfWithPypdf: (fileBuffer) => pypdfService.processPdfWithPypdf(fileBuffer),
@@ -1504,5 +1605,7 @@ module.exports = {
   // 🔥 新增：CRF/SAP专用格式化函数（跳过Assessment Schedule识别）
   formatResultForCrfSap: (pypdfResult) => pypdfService.formatResultForCrfSap(pypdfResult),
   // 🔥 新增：CRF专用位置提取函数
-  extractCrfPositions
+  extractCrfPositions,
+  // 🔥 新增：CRF专用词位置提取函数（简化版）
+  extractCrfWordsOnly
 };

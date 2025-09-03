@@ -2,7 +2,9 @@
 const Document = require('../models/documentModel');
 const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
-const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService, extractCrfPositions } = require('../services/pypdfService');
+const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService, extractCrfPositions, extractCrfWordsOnly } = require('../services/pypdfService');
+const { processWordsToRows } = require('../services/words_to_rows_processor');
+const { processCrfForms } = require('../services/crf_form_processor');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
 const { performADaMAnalysis, generateOutputsFromDomains } = require('../services/adamAnalysisService');
 
@@ -1347,8 +1349,10 @@ async function uploadCrfFile(req, res) {
     };
 
     // 解析CRF文件内容（PDF/Word），不进行 assessmentSchedule 识别
-    // 初始化form数据结构
-    let formData = { crfFormList: {}, crfFormName: { names: [], total_forms: 0 } };
+    // 🔥 新增：初始化词和行位置变量（在外部作用域）
+    let wordsWithPosition = {};
+    let rowsWithPosition = {};
+    let identifiedPatterns = {};
     
     try {
       if (req.file.mimetype === 'application/pdf') {
@@ -1356,24 +1360,80 @@ async function uploadCrfFile(req, res) {
         const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         crfParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用CRF专用解析
         
-        // 🔥 新增：提取CRF PDF的詳細位置信息並保存JSON文件
+        // 🔥 新增：提取CRF PDF的词位置信息（简化版）
         try {
-          console.log('🔍 开始提取CRF位置信息...');
-          const positionResult = await extractCrfPositions(req.file.buffer, id);
-          console.log(`✅ CRF位置提取完成 - 保存文件: ${positionResult.saved_file || 'temp directory'}`);
-          console.log(`📊 CRF統計: ${positionResult.metadata.total_words} 單詞, ${positionResult.metadata.total_forms || 0} 表單`);
+          console.log('🔍 开始提取CRF词位置信息...');
+          const wordsResult = await extractCrfWordsOnly(req.file.buffer, id);
+          console.log(`✅ CRF词位置提取完成`);
+          console.log(`📊 CRF统计: ${wordsResult.metadata?.total_words || 0} 词, ${wordsResult.metadata?.total_pages || 0} 页`);
           
-          // 提取form信息
-          if (positionResult.forms) {
-            formData = positionResult.forms;
-            console.log(`📋 CRF Forms 提取: ${formData.crfFormName.total_forms} 個表單`);
-            if (formData.crfFormName.total_forms > 0) {
-              console.log(`📋 Form Names: ${formData.crfFormName.names.join(', ')}`);
+          // 保存词位置结果
+          if (wordsResult.success) {
+            wordsWithPosition = wordsResult;
+            
+            // 🔥 新增：将词位置转换为行位置
+            try {
+              console.log('🔄 开始将词位置转换为行位置...');
+              const rowsResult = processWordsToRows(wordsResult, 3.5); // 使用3.5pt的Y坐标容差
+              console.log(`✅ 行位置转换完成: ${rowsResult.metadata?.total_rows || 0} 行, ${rowsResult.metadata?.total_words || 0} 词`);
+              
+              if (rowsResult.success) {
+                rowsWithPosition = rowsResult;
+
+                // 🔍 新增：基于前10页行文本调用AI识别页眉/页脚/页码/Form名称pattern
+                try {
+                  const firstPages = (rowsResult.pages || []).slice(0, 10).map(p => ({
+                    page_number: p.page_number,
+                    rows: (p.rows || []).map(r => ({ row_index: r.row_index, full_text: r.full_text }))
+                  }));
+                  // 只有存在OPENAI_API_KEY时才调用，避免阻塞上传
+                  if (process.env.OPENAI_API_KEY && firstPages.length > 0) {
+                    const { identifyCrfHeaderFooterAndFormPatterns } = require('../services/openaiService');
+                    const aiPatterns = await identifyCrfHeaderFooterAndFormPatterns(firstPages);
+                    if (aiPatterns && aiPatterns.success) {
+                      identifiedPatterns = aiPatterns;
+                      
+                      // 🔥 新增：基于AI patterns和行数据提取完整的Form信息
+                      try {
+                        console.log('🎯 开始基于AI patterns处理CRF Forms...');
+                        const formData = processCrfForms(rowsResult, identifiedPatterns);
+                        
+                        // 更新crfFormList和crfFormName（不再为空）
+                        if (formData && formData.crfFormList) {
+                          console.log(`✅ 成功处理${formData.crfFormName.total_forms}个CRF Forms`);
+                          
+                          // 将处理结果存储到变量中，稍后保存到数据库
+                          global.processedCrfFormList = formData.crfFormList;
+                          global.processedCrfFormName = formData.crfFormName;
+                        }
+                      } catch (formErr) {
+                        console.warn('⚠️ CRF Form处理失败（已忽略）:', formErr.message);
+                        global.processedCrfFormList = {};
+                        global.processedCrfFormName = { names: [], total_forms: 0 };
+                      }
+                    } else {
+                      identifiedPatterns = { success: false, header_patterns: [], footer_patterns: [], page_number_patterns: [], form_name_patterns: [] };
+                      global.processedCrfFormList = {};
+                      global.processedCrfFormName = { names: [], total_forms: 0 };
+                    }
+                  } else {
+                    if (!process.env.OPENAI_API_KEY) console.warn('⚠️ OPENAI_API_KEY 未设置，跳过AI pattern识别');
+                    global.processedCrfFormList = {};
+                    global.processedCrfFormName = { names: [], total_forms: 0 };
+                  }
+                } catch (aiErr) {
+                  console.warn('⚠️ AI识别页眉/页脚/Form名称pattern失败（已忽略）:', aiErr.message);
+                  global.processedCrfFormList = {};
+                  global.processedCrfFormName = { names: [], total_forms: 0 };
+                }
+              }
+            } catch (rowsErr) {
+              console.warn('⚠️ 词到行转换失败，但不影响上传:', rowsErr.message);
             }
           }
-        } catch (positionErr) {
-          console.warn('⚠️ CRF位置提取失败，但不影響正常上传:', positionErr.message);
-          // 位置提取失败不影响正常的文件上传流程
+        } catch (wordsErr) {
+          console.warn('⚠️ CRF词位置提取失败，但不影响正常上传:', wordsErr.message);
+          // 词位置提取失败不影响正常的文件上传流程
         }
         
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
@@ -1418,8 +1478,11 @@ async function uploadCrfFile(req, res) {
           'files.crf.mimeType': req.file.mimetype,
           'files.crf.uploadedAt': crfUploadedAt,
           'files.crf.crfUploadResult': {
-            crfFormList: formData?.crfFormList || {},
-            crfFormName: formData?.crfFormName || { names: [], total_forms: 0 }
+            crfFormList: global.processedCrfFormList || {},
+            crfFormName: global.processedCrfFormName || { names: [], total_forms: 0 },
+            Extract_words_with_position: wordsWithPosition,
+            Extract_rows_with_position: rowsWithPosition,
+            identified_patterns: identifiedPatterns
           }
         }
       },
@@ -1436,14 +1499,21 @@ async function uploadCrfFile(req, res) {
         fileSize: req.file.size,
         uploadedAt: crfUploadedAt,
         crfUploadResult: {
-          crfFormList: formData?.crfFormList || {},
-          crfFormName: formData?.crfFormName || { names: [], total_forms: 0 }
+          crfFormList: global.processedCrfFormList || {},
+          crfFormName: global.processedCrfFormName || { names: [], total_forms: 0 },
+          Extract_words_with_position: wordsWithPosition,
+          Extract_rows_with_position: rowsWithPosition,
+          identified_patterns: identifiedPatterns
         }
       }
     });
   } catch (error) {
     console.error('uploadCrfFile error:', error);
     return res.status(500).json({ success: false, message: 'Upload CRF file failed', error: error.message });
+  } finally {
+    // 清理临时全局变量
+    delete global.processedCrfFormList;
+    delete global.processedCrfFormName;
   }
 }
 

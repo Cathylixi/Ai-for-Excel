@@ -427,6 +427,117 @@ module.exports = {
   extractStudyNumber,
   identifyAssessmentScheduleForPdfTables,
   /**
+   * Identify repeating header/footer/page-number patterns and form name patterns
+   * from first N pages' rows (line-level text) of a CRF PDF.
+   * @param {Array<{page_number:number, rows:Array<{row_index:number, full_text:string}>}>} firstPagesRows
+   * @returns {Promise<{success:boolean, header_patterns:string[], footer_patterns:string[], page_number_patterns:string[], form_name_patterns:string[]}>}
+   */
+  identifyCrfHeaderFooterAndFormPatterns: async function identifyCrfHeaderFooterAndFormPatterns(firstPagesRows) {
+    try {
+      if (!Array.isArray(firstPagesRows) || firstPagesRows.length === 0) {
+        return { success: false, header_patterns: [], footer_patterns: [], page_number_patterns: [], form_name_patterns: [] };
+      }
+
+      // Build compact input: per page list of lines
+      const pagesText = firstPagesRows.map(p => ({ page: p.page_number, lines: (p.rows || []).map(r => String(r.full_text || '').trim()).filter(Boolean) }));
+
+      const instruction = `You are analyzing CRF (Case Report Form) pages to identify repeating patterns that appear consistently across multiple pages.
+
+BACKGROUND: CRF documents typically have:
+- Headers with version info, project names, generation timestamps
+- Form titles like "Form: PARTICIPANT ENROLLMENT" 
+- Footers with version codes, page numbers
+- Consistent formatting across all pages
+
+TASK: Find lines that repeat on MULTIPLE pages (3+ pages) with same structure but variable content.
+
+EXAMPLES of typical CRF patterns:
+- Header: "Version 8.100 CLINICAL QA 12MAR2023 | Protocol: XYZ-789-C01"
+- Timestamp: "Document Generated: 22 Apr 2023 09:14:26 EST"
+- Form title: "CRF: ADVERSE EVENTS" 
+- Footer: "Version 8.100 CLINICAL QA 12MAR2023 [Document ID: 445]"
+- Page number: "12 of 187" or "12/187"
+
+IDENTIFY:
+1) HEADER patterns (TOP 1-n repeatinglines of pages):
+   - Version/software lines (e.g., "Version \\\\d+\\\\.\\\\d+ .+ \\\\| Protocol: .+" or "V\\\\d+\\\\.\\\\d+ PROD .+ Study Name: .+")
+   - Generation timestamps (e.g., "Document Generated: .+ EST" or "Created On: .+ \\\\(UTC\\\\)" or "Generated On: .+ \\\\(GMT\\\\)")
+   - Project identification lines
+   - Form title lines that appear in header area (should be filtered from content)
+
+2) FOOTER patterns (BOTTOM 1-n repeating lines of pages):
+   - Version references with brackets/parentheses (e.g., "Version \\\\d+\\\\.\\\\d+ .+ \\\\[Document ID: \\\\d+\\\\]" or "V\\\\d+\\\\.\\\\d+ .+ \\\\(\\\\d+\\\\)")
+   - Document identifiers
+
+3) PAGE NUMBER patterns:
+   - Format like "\\\\d+ of \\\\d+" or "\\\\d+/\\\\d+" or "Page \\\\d+"
+
+4) FORM NAME patterns:
+   - Lines starting with "Form:" or "CRF:" or other possible patterns (e.g., "Form:\\\\s*(.+)" or "CRF:\\\\s*(.+)")
+   - Capture the actual form name in group 1
+
+REQUIREMENTS:
+- Return STRICT JSON: {"header_patterns":[], "footer_patterns":[], "page_number_patterns":[], "form_name_patterns":[]}
+- Each pattern must be valid JavaScript regex string
+- Use \\\\d+ for numbers, .+ for variable text, \\\\s+ for spaces
+- Test patterns should match the STRUCTURE, allowing content to vary
+- Only include patterns that appear on 3+ pages
+
+ANALYZE THESE PAGES:\n${JSON.stringify(pagesText).slice(0, 12000)}`;
+
+      const resp = await openai.chat.completions.create({
+        model: 'gpt-4',
+        messages: [{ role: 'user', content: instruction }],
+        temperature: 0.1,
+        max_tokens: 800
+      });
+
+      const raw = (resp.choices?.[0]?.message?.content || '').trim();
+      let parsed = null;
+      try { parsed = JSON.parse(raw); } catch (_) {
+        const s = raw.indexOf('{'); const e = raw.lastIndexOf('}');
+        if (s >= 0 && e > s) { try { parsed = JSON.parse(raw.slice(s, e + 1)); } catch (_) {} }
+      }
+      if (!parsed) return { success: false, header_patterns: [], footer_patterns: [], page_number_patterns: [], form_name_patterns: [] };
+
+      // Validate and clean patterns
+      const validatePattern = (pattern) => {
+        try {
+          new RegExp(pattern); // Test if valid regex
+          return pattern.length > 2 && pattern.length < 500; // Reasonable length
+        } catch (e) {
+          console.warn(`❌ Invalid regex pattern: ${pattern}`, e.message);
+          return false;
+        }
+      };
+      
+      const normArr = (x) => Array.isArray(x) ? 
+        x.map(s => String(s || '').trim())
+         .filter(Boolean)
+         .filter(validatePattern) : [];
+
+      const result = {
+        success: true,
+        header_patterns: normArr(parsed.header_patterns),
+        footer_patterns: normArr(parsed.footer_patterns),
+        page_number_patterns: normArr(parsed.page_number_patterns),
+        form_name_patterns: normArr(parsed.form_name_patterns)
+      };
+
+      // Log validation results
+      console.log(`✅ Pattern validation results:`);
+      console.log(`📋 Header patterns: ${result.header_patterns.length}`);
+      console.log(`📋 Footer patterns: ${result.footer_patterns.length}`);
+      console.log(`📋 Page number patterns: ${result.page_number_patterns.length}`);
+      console.log(`📋 Form name patterns: ${result.form_name_patterns.length}`);
+      
+      return result;
+    } catch (e) {
+      console.warn('identifyCrfHeaderFooterAndFormPatterns failed:', e.message);
+      return { success: false, header_patterns: [], footer_patterns: [], page_number_patterns: [], form_name_patterns: [] };
+    }
+  },
+  /**
    * Identify endpoint sections by titles only. Returns array of { index, category, cleaned_title }
    */
   identifyEndpoints: async function identifyEndpoints(sectionTitles) {

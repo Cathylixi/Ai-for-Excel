@@ -31,10 +31,7 @@ const upload = multer({
   }
 });
 
-// 确保uploads目录存在
-if (!fs.existsSync('uploads')) {
-  fs.mkdirSync('uploads');
-}
+// 不再需要uploads目录（使用内存存储）
 
 // MongoDB Atlas 连接
 const MONGODB_URI = process.env.MONGODB_URI;

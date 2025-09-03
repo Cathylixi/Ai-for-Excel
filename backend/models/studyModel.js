@@ -73,7 +73,11 @@ const CrfFileSlotSchema = new mongoose.Schema({
   uploadedAt: { type: Date },
   crfUploadResult: {
     crfFormList: { type: mongoose.Schema.Types.Mixed, default: {} },
-    crfFormName: { type: mongoose.Schema.Types.Mixed, default: {} }
+    crfFormName: { type: mongoose.Schema.Types.Mixed, default: {} },
+    Extract_words_with_position: { type: mongoose.Schema.Types.Mixed, default: {} },
+    Extract_rows_with_position: { type: mongoose.Schema.Types.Mixed, default: {} },
+    // ✅ 新增：AI识别到的页眉/页脚/页码/Form名称pattern集合
+    identified_patterns: { type: mongoose.Schema.Types.Mixed, default: {} }
   }
 }, { _id: false });
 
