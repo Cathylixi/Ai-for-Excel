@@ -378,6 +378,59 @@ async function getDocumentContent(req, res) {
   }
 }
 
+// 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
+async function getCrfData(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    let study = null;
+    if (studyId && studyId.match(/^[0-9a-fA-F]{24}$/)) {
+      study = await Study.findById(studyId).lean();
+    }
+    if (!study) {
+      study = await Study.findOne({ studyNumber: studyId }).lean();
+    }
+
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study 不存在'
+      });
+    }
+
+    const crfData = study.files?.crf || {};
+    if (!crfData.uploaded) {
+      return res.status(404).json({
+        success: false,
+        message: 'CRF 文件尚未上传'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: '获取CRF数据成功',
+      data: {
+        studyId: String(study._id),
+        studyNumber: study.studyNumber,
+        fileInfo: {
+          originalName: crfData.originalName,
+          fileSize: crfData.fileSize,
+          uploadedAt: crfData.uploadedAt
+        },
+        crfUploadResult: crfData.crfUploadResult || {}
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting CRF data:', error);
+    return res.status(500).json({ 
+      success: false, 
+      message: 'Failed to get CRF data', 
+      error: error.message 
+    });
+  }
+}
+
 // 🔥 新增：获取Study的文档槽位状态（供前端列出CRF/SAP）
 async function getStudyDocuments(req, res) {
   try {
@@ -1858,6 +1911,7 @@ module.exports = {
   uploadAdditionalFile,
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
   uploadSapFile,     // 🔥 新增：专门的SAP上传函数
+  getCrfData,        // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
   saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 }; 

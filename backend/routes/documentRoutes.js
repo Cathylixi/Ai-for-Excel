@@ -18,6 +18,7 @@ const {
   uploadAdditionalFile,
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
   uploadSapFile,     // 🔥 新增：专门的SAP上传函数
+  getCrfData,        // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
   saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 } = require('../controllers/documentController');
@@ -93,6 +94,9 @@ router.patch('/documents/:id/update-units', updateUnits);
 
 // 🔥 新增：获取Study的文档槽位状态
 router.get('/studies/:studyIdentifier/documents', getStudyDocuments);
+
+// 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
+router.get('/studies/:studyId/crf-data', getCrfData);
 
 // 新增：分析指定文档的ADaM映射
 router.post('/documents/:id/analyze-adam', analyzeDocumentForAdam);

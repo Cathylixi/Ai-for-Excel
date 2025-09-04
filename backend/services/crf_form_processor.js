@@ -4,6 +4,8 @@
  * Author: LLX Solutions
  */
 
+const { addLabelOidToAllForms } = require('./extractLabelOidForms');
+
 /**
  * 从行数据中提取Form标题行
  * @param {Object} rowsData - Extract_rows_with_position数据
@@ -198,7 +200,11 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
     delete form.segments;
   });
 
-  return formsByTitle;
+  // 4) 为所有Forms添加LabelForm和OIDForm
+  console.log('🎯 第4步：提取LabelForm和OIDForm...');
+  const formsWithLabelOid = addLabelOidToAllForms(formsByTitle);
+  
+  return formsWithLabelOid;
 }
 
 /**
