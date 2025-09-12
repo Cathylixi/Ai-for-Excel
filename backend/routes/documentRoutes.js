@@ -22,6 +22,8 @@ const {
   generateCrfAnnotationRects,        // 🔥 新增：生成CRF注解矩形参数
   getCrfAnnotationStatus,           // 🔥 新增：获取CRF注解状态
   downloadAnnotatedCrf,              // 🔥 新增：下载注解CRF PDF
+  getCrfAnnotationProgress,         // 🔥 新增：获取CRF注解进度（内存）
+  resetCrfProgress,                 // 🔥 新增：重置进度（Re-annotate前）
   checkExistingSdtmData,            // 🔥 新增：检查现成SDTM数据
   redrawCrfAnnotationPdf,           // 🔥 新增：仅重绘PDF（跳过GPT）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
@@ -117,6 +119,9 @@ router.post('/studies/:studyId/generate-crf-annotation-rects', generateCrfAnnota
 
 // 🔥 新增：获取CRF注解状态
 router.get('/studies/:studyId/crf-annotation-status', getCrfAnnotationStatus);
+// 进度（内存）
+router.get('/studies/:studyId/crf-annotation-progress', getCrfAnnotationProgress);
+router.post('/studies/:studyId/reset-crf-progress', resetCrfProgress);
 
 // 🔥 新增：下载注解CRF PDF
 router.get('/studies/:studyId/crf-annotated.pdf', downloadAnnotatedCrf);

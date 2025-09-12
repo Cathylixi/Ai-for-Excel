@@ -73,8 +73,9 @@
   async function startAnnotationProcess() {
     console.log('🚀 Starting CRF annotation process...');
     
-    // 切换到进度界面
+    // 切换到进度界面并启动进度轮询
     showProgressView();
+    startProgressPolling();
     
     try {
       // 创建 AbortController 用于处理超时
@@ -218,11 +219,27 @@
               This may take a few moments to complete.
             </p>
             
-            <div class="progress-indicator" style="margin: 30px 0;">
-              <div class="ms-Spinner">
-                <div class="ms-Spinner-circle ms-Spinner-circle--large"></div>
+            <div class="progress-block" style="max-width:720px;margin:24px auto;text-align:left;">
+              <div style="margin:8px 0 4px 0;display:flex;justify-content:space-between;align-items:center;">
+                <span class="ms-font-m">📊 GPT Analysis</span>
+                <span id="gpt-progress-text" class="ms-font-s" style="color:#605e5c;">0/0 forms</span>
               </div>
+              <div class="progress-bar" style="height:10px;background:#edebe9;border-radius:6px;overflow:hidden;">
+                <div id="gpt-progress-fill" style="height:100%;width:0%;background:#0078d4;transition:width .3s ease;"></div>
+              </div>
+              <div id="gpt-percentage" class="ms-font-s" style="text-align:right;color:#605e5c;margin-top:4px;">0%</div>
+
+              <div style="margin:16px 0 4px 0;display:flex;justify-content:space-between;align-items:center;">
+                <span class="ms-font-m">🎨 PDF Drawing</span>
+                <span id="pdf-progress-text" class="ms-font-s" style="color:#605e5c;">0/0 batches</span>
+              </div>
+              <div class="progress-bar" style="height:10px;background:#edebe9;border-radius:6px;overflow:hidden;">
+                <div id="pdf-progress-fill" style="height:100%;width:0%;background:#107c10;transition:width .3s ease;"></div>
+              </div>
+              <div id="pdf-percentage" class="ms-font-s" style="text-align:right;color:#605e5c;margin-top:4px;">0%</div>
             </div>
+
+            <div id="progress-current-status" class="ms-font-s" style="color:#323130; margin-top: 8px;">Starting...</div>
             
             <p class="ms-font-s" style="color: #323130; margin-bottom: 30px;">
               🔄 Analyzing document structure...<br/>
@@ -233,6 +250,53 @@
         </div>
       </div>
     `;
+  }
+
+  // 轮询进度
+  async function pollProgressOnce() {
+    try {
+      const resp = await fetch(`${API_BASE_URL}/api/studies/${currentStudyId}/crf-annotation-progress`);
+      if (!resp.ok) return null;
+      const json = await resp.json();
+      return json.success ? json.data : null;
+    } catch (_) { return null; }
+  }
+
+  function applyProgressToUI(progress){
+    if (!progress) return;
+    const g = progress.gptAnalysis || { totalForms:0, processedForms:0, percentage:0, status:'pending' };
+    const p = progress.pdfDrawing || { totalBatches:0, processedBatches:0, percentage:0, status:'pending' };
+
+    const gFill = qs('gpt-progress-fill');
+    const gPct = qs('gpt-percentage');
+    const gTxt = qs('gpt-progress-text');
+    if (gFill) gFill.style.width = `${Math.min(100, Math.max(0, Math.round(g.percentage||0)))}%`;
+    if (gPct) gPct.textContent = `${Math.min(100, Math.max(0, Math.round(g.percentage||0)))}%`;
+    if (gTxt) gTxt.textContent = `${g.processedForms||0}/${g.totalForms||0} forms`;
+
+    const pFill = qs('pdf-progress-fill');
+    const pPct = qs('pdf-percentage');
+    const pTxt = qs('pdf-progress-text');
+    if (pFill) pFill.style.width = `${Math.min(100, Math.max(0, Math.round(p.percentage||0)))}%`;
+    if (pPct) pPct.textContent = `${Math.min(100, Math.max(0, Math.round(p.percentage||0)))}%`;
+    if (pTxt) pTxt.textContent = `${p.processedBatches||0}/${p.totalBatches||0} batches`;
+
+    const statusNode = qs('progress-current-status');
+    if (statusNode) {
+      statusNode.textContent = progress.currentPhase === 'gpt' ? 'Analyzing SDTM mappings with GPT...' : (progress.currentPhase === 'pdf' ? 'Drawing annotations to PDF...' : 'Completed');
+    }
+  }
+
+  async function startProgressPolling(){
+    let isDone = false;
+    const tick = async () => {
+      if (isDone) return;
+      const data = await pollProgressOnce();
+      if (data) applyProgressToUI(data);
+      if (data && data.currentPhase === 'completed') { isDone = true; return; }
+      setTimeout(tick, 2000);
+    };
+    tick();
   }
 
   // 轮询后端状态直到注解完成

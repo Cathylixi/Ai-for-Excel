@@ -1,6 +1,120 @@
 // Legacy Document model kept for backward compatibility (not used after migration)
 const Document = require('../models/documentModel');
 const Study = require('../models/studyModel');
+// =========================
+// In-memory CRF annotation progress (per study)
+// =========================
+const annotationProgressMap = new Map(); // key: studyId, value: progress object
+
+function getDefaultProgress(totalForms = 0, totalBatches = 0) {
+  return {
+    overall: { totalForms, processedForms: 0, percentage: 0 },
+    gptAnalysis: { totalForms, processedForms: 0, percentage: 0, status: 'pending' },
+    pdfDrawing: { totalBatches, processedBatches: 0, percentage: 0, status: 'pending' },
+    currentPhase: 'gpt',
+    updatedAt: Date.now()
+  };
+}
+
+function clampPercentage(value) {
+  if (typeof value !== 'number' || Number.isNaN(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+}
+
+function updateAnnotationProgress(studyId, patch) {
+  const current = annotationProgressMap.get(studyId) || getDefaultProgress();
+  const updated = { ...current };
+
+  if (patch.overall) {
+    updated.overall = { ...updated.overall, ...patch.overall };
+    if (typeof updated.overall.percentage === 'number') {
+      updated.overall.percentage = clampPercentage(updated.overall.percentage);
+    }
+  }
+  if (patch.gptAnalysis) {
+    updated.gptAnalysis = { ...updated.gptAnalysis, ...patch.gptAnalysis };
+    if (typeof updated.gptAnalysis.percentage === 'number') {
+      updated.gptAnalysis.percentage = clampPercentage(updated.gptAnalysis.percentage);
+    }
+  }
+  if (patch.pdfDrawing) {
+    updated.pdfDrawing = { ...updated.pdfDrawing, ...patch.pdfDrawing };
+    if (typeof updated.pdfDrawing.percentage === 'number') {
+      updated.pdfDrawing.percentage = clampPercentage(updated.pdfDrawing.percentage);
+    }
+  }
+  if (patch.currentPhase) {
+    updated.currentPhase = patch.currentPhase;
+  }
+
+  updated.updatedAt = Date.now();
+  annotationProgressMap.set(studyId, updated);
+  return updated;
+}
+
+function inferProgressFromExistingData(study) {
+  const crfData = study?.files?.crf;
+  const crfFormList = crfData?.crfUploadResult?.crfFormList || {};
+  const totalForms = Object.keys(crfFormList).length;
+  const totalBatches = totalForms > 0 ? Math.ceil(totalForms / 5) : 0;
+
+  if (crfData?.annotationReady) {
+    return {
+      overall: { totalForms, processedForms: totalForms, percentage: 100 },
+      gptAnalysis: { totalForms, processedForms: totalForms, percentage: 100, status: 'completed' },
+      pdfDrawing: { totalBatches, processedBatches: totalBatches, percentage: 100, status: 'completed' },
+      currentPhase: 'completed',
+      updatedAt: Date.now()
+    };
+  }
+
+  // 估算：如果Mapping存在则认为GPT阶段完成
+  const hasAnyGptData = Object.values(crfFormList).some(form => Array.isArray(form?.Mapping) && form.Mapping.some(m => Array.isArray(m?.sdtm_mappings) || typeof m?.sdtm_dataset_ai_result === 'string'));
+  if (hasAnyGptData) {
+    return {
+      overall: { totalForms, processedForms: totalForms, percentage: totalForms ? 100 : 0 },
+      gptAnalysis: { totalForms, processedForms: totalForms, percentage: totalForms ? 100 : 0, status: 'completed' },
+      pdfDrawing: { totalBatches, processedBatches: 0, percentage: 0, status: 'running' },
+      currentPhase: 'pdf',
+      updatedAt: Date.now()
+    };
+  }
+
+  return {
+    overall: { totalForms, processedForms: 0, percentage: 0 },
+    gptAnalysis: { totalForms, processedForms: 0, percentage: 0, status: 'pending' },
+    pdfDrawing: { totalBatches, processedBatches: 0, percentage: 0, status: 'pending' },
+    currentPhase: 'gpt',
+    updatedAt: Date.now()
+  };
+}
+
+async function getCrfAnnotationProgress(req, res) {
+  try {
+    const { studyId } = req.params;
+    if (!studyId) return res.status(400).json({ success: false, message: 'Missing studyId' });
+
+    let progress = annotationProgressMap.get(studyId);
+    if (!progress) {
+      const study = await Study.findById(studyId).select('files.crf');
+      progress = inferProgressFromExistingData(study);
+    }
+    res.json({ success: true, data: progress });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to get progress', error: err.message });
+  }
+}
+
+async function resetCrfProgress(req, res) {
+  try {
+    const { studyId } = req.params;
+    if (!studyId) return res.status(400).json({ success: false, message: 'Missing studyId' });
+    annotationProgressMap.delete(studyId);
+    res.json({ success: true, message: 'Progress reset' });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Failed to reset progress', error: err.message });
+  }
+}
 const { parseWordDocumentStructure } = require('../services/wordParserService');
 const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService, extractCrfPositions, extractCrfWordsOnly } = require('../services/pypdfService');
 const { processWordsToRows } = require('../services/crf_analysis/words_to_rows_processor');
@@ -1962,7 +2076,34 @@ async function generateCrfAnnotationRects(req, res) {
     
     // 克隆crfFormList并生成SDTM映射
     let updatedCrfFormList = JSON.parse(JSON.stringify(study.files.crf.crfUploadResult.crfFormList));
-    updatedCrfFormList = await generateSdtmMappingForAllForms(updatedCrfFormList);
+
+    // 初始化并更新GPT阶段进度
+    const totalForms = Object.keys(updatedCrfFormList || {}).length;
+    updateAnnotationProgress(studyId, {
+      overall: { totalForms, processedForms: 0, percentage: 0 },
+      gptAnalysis: { totalForms, processedForms: 0, percentage: 0, status: 'running' },
+      pdfDrawing: { totalBatches: Math.ceil((totalForms || 0) / 5), processedBatches: 0, percentage: 0, status: 'pending' },
+      currentPhase: 'gpt'
+    });
+    
+    let gptProcessedForms = 0;
+    updatedCrfFormList = await generateSdtmMappingForAllForms(updatedCrfFormList, () => {
+      gptProcessedForms += 1;
+      updateAnnotationProgress(studyId, {
+        overall: {
+          processedForms: gptProcessedForms,
+          percentage: totalForms ? (gptProcessedForms / totalForms) * 100 : 0
+        },
+        gptAnalysis: {
+          processedForms: gptProcessedForms,
+          percentage: totalForms ? (gptProcessedForms / totalForms) * 100 : 0,
+          status: gptProcessedForms === totalForms ? 'completed' : 'running'
+        }
+      });
+    });
+
+    // GPT阶段完成，切换到PDF阶段
+    updateAnnotationProgress(studyId, { currentPhase: 'pdf', gptAnalysis: { status: 'completed', percentage: 100 } });
     
     // 将更新后的数据写回数据库
     await Study.findByIdAndUpdate(
@@ -2227,6 +2368,16 @@ async function annotatePdfInBatches(studyData, studyId, options = {}) {
       succeededBatches++;
       processedForms = end;
       console.log(`✅ 本批完成。已分批注解至第 ${processedForms} 个表格 / 共 ${totalForms}`);
+
+      // 更新PDF进度（每批完成一次）
+      updateAnnotationProgress(studyId, {
+        pdfDrawing: {
+          totalBatches,
+          processedBatches: batchIndex + 1,
+          percentage: ((batchIndex + 1) / totalBatches) * 100,
+          status: batchIndex + 1 === totalBatches ? 'completed' : 'running'
+        }
+      });
     } catch (err) {
       console.warn(`❌ 本批失败：${err.message}。将继续下一批。`);
       failedBatches++;
@@ -2259,6 +2410,14 @@ async function annotatePdfInBatches(studyData, studyId, options = {}) {
   );
 
   console.log(`🎉 分批注解完成：成功批次 ${succeededBatches}，失败批次 ${failedBatches}，最终下载链接: ${downloadUrl}`);
+
+  // 最终完成：标记进度为completed并安排清理
+  updateAnnotationProgress(studyId, {
+    currentPhase: 'completed',
+    pdfDrawing: { status: 'completed', percentage: 100 },
+    overall: { processedForms: totalForms, percentage: 100 }
+  });
+  setTimeout(() => { try { annotationProgressMap.delete(studyId); } catch (_) {} }, 60 * 1000);
 
   return {
     studyId,
@@ -2703,5 +2862,7 @@ module.exports = {
   checkExistingSdtmData,            // 🔥 新增：检查现成SDTM数据
   redrawCrfAnnotationPdf,           // 🔥 新增：仅重绘PDF（跳过GPT）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
-  saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
+  saveDataFlowTraceability,          // 🔥 新增：数据流可追溯性保存函数
+  getCrfAnnotationProgress,         // 🔥 新增：获取CRF注解进度（内存）
+  resetCrfProgress                  // 🔥 新增：重置进度（Re-annotate前）
 }; 

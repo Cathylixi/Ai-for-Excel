@@ -46,7 +46,7 @@ async function generateSdtmMapping(formTitle, mappingList) {
     const actualIndices = validQuestions
       .map(item => item.index)
       .sort((a, b) => a - b);
-
+    
     const prompt = `You are an SDTM (Study Data Tabulation Model) expert with deep knowledge of CDISC standards.
 
 ### INPUT
@@ -444,7 +444,7 @@ function parseGptResponse(gptResponse, originalList) {
  * @param {Object} crfFormList - crfFormList对象
  * @returns {Promise<Object>} 更新后的crfFormList
  */
-async function generateSdtmMappingForAllForms(crfFormList) {
+async function generateSdtmMappingForAllForms(crfFormList, progressHook) {
   try {
     console.log('🚀 开始为所有Forms生成SDTM映射...');
     
@@ -519,8 +519,13 @@ async function generateSdtmMappingForAllForms(crfFormList) {
 
         // 🆕 生成Form的唯一SDTM域列表
         form.form_sdtm_mapping_unique = extractUniqueDomainsFromForm(form);
-        
+
         console.log(`✅ Form "${form.title || formKey}" SDTM映射完成`);
+
+        // 进度回调（每处理一个Form触发）
+        if (typeof progressHook === 'function') {
+          try { progressHook({ type: 'gpt_form_done' }); } catch (_) {}
+        }
       }
       
       const batchTime = Date.now() - batchStartTime;
