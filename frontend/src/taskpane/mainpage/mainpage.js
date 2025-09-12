@@ -236,6 +236,54 @@ async function handleChatSend() {
     return;
   }
 
+  // 🔥 新增：处理CRF注解选择状态
+  if (typeof window !== 'undefined' && window.chatFlowState === 'awaiting_crf_annotation_choice') {
+    const intent = parseYesNoIntent(userMessage);
+    
+    if (intent === 'yes') {
+      // 用户选择做CRF注解
+      addChatMessage("Great! Let's start CRF annotation.", 'ai');
+      
+      // 设置状态，跳转到CRF注解页面
+      window.chatFlowState = 'waiting_for_crf_annotation_finish';
+      
+      // 跳转到CRF注解页面（Step 8）
+      if (moduleConfig && typeof moduleConfig.showStep === 'function') {
+        moduleConfig.showStep(8);
+      } else if (typeof window.showStep === 'function') {
+        window.showStep(8);
+      }
+      
+    } else if (intent === 'no') {
+      // 用户不想做注解，继续原流程
+      const taskName = window.pendingTaskAfterAnnotation?.taskName || 'the task';
+      addChatMessage(`No problem! We can do ${taskName} now.`, 'ai');
+      
+      // 继续原来的任务流程
+      window.chatFlowState = null;
+      const pendingTask = window.pendingTaskAfterAnnotation;
+      window.pendingTaskAfterAnnotation = null;
+      
+      // 显示打字指示器并启动任务
+      showTypingIndicator();
+      setTimeout(async () => {
+        hideTypingIndicator();
+        
+        // 恢复原任务到pending状态并启动
+        if (pendingTask) {
+          window.pendingNewTask = pendingTask;
+          await startNewTask();
+        }
+      }, 2000);
+      
+    } else {
+      addChatMessage("Please answer 'yes' or 'no'.", 'ai');
+    }
+    
+    document.getElementById('chat-send-btn').disabled = false;
+    return;
+  }
+
   // 检查是否在等待确认状态
   if (pendingConfirmation) {
     await handleConfirmationResponse(userMessage);
@@ -737,6 +785,25 @@ async function startNewTask() {
   }
 }
 
+// 🔥 检查是否上传了CRF文件
+async function checkIfCrfUploaded() {
+  try {
+    const studyId = window.currentStudyContext?.studyNumber || 
+                   window.currentStudyContext?.studyIdentifier || 
+                   window.currentDocumentId;
+    if (!studyId) return false;
+    
+    const response = await fetch(`${moduleConfig.API_BASE_URL}/api/studies/${encodeURIComponent(studyId)}/documents`);
+    if (!response.ok) return false;
+    
+    const data = await response.json();
+    return !!(data?.data?.hasCrf || data?.hasCrf);
+  } catch (error) {
+    console.error('❌ 检查CRF上传状态失败:', error);
+    return false;
+  }
+}
+
 // 🔥 处理 other documents 上传完成事件
 async function handleOtherDocsUploadComplete(event) {
   console.log('📨 Received otherdocs upload complete event:', event.detail);
@@ -752,22 +819,79 @@ async function handleOtherDocsUploadComplete(event) {
     // 清理上传相关状态
     window.uploadContext = 'default';
     
+    // 🔥 新增：检查是否上传了CRF文件
+    const hasCrfUploaded = await checkIfCrfUploaded();
+    console.log('🔍 CRF上传检查结果:', hasCrfUploaded);
+    
+    if (hasCrfUploaded) {
+      // 有CRF文件，询问是否要做注解
+      setTimeout(() => {
+        addChatMessage("✅ Upload successfully! I noticed you uploaded CRF documents. Do you want to do CRF annotation first?", 'ai');
+        
+        // 设置状态等待用户选择
+        window.chatFlowState = 'awaiting_crf_annotation_choice';
+        window.pendingTaskAfterAnnotation = event.detail.pendingTask; // 保存原任务
+      }, 200);
+      
+    } else {
+      // 没有CRF文件，继续原流程
+      setTimeout(() => {
+        addChatMessage(`✅ Upload successfully! We can do ${taskName} now.`, 'ai');
+        
+        // 显示打字指示器并在2秒后启动新任务
+        showTypingIndicator();
+        setTimeout(async () => {
+          hideTypingIndicator();
+          await startNewTask();
+        }, 2000);
+        
+      }, 200); // 稍微延迟确保页面已完全显示
+    }
+    
+  } catch (error) {
+    console.error('❌ Error handling otherdocs upload complete:', error);
+    addChatMessage('Upload completed, but there was an error starting the task. Please try again.', 'ai');
+  }
+}
+
+// 🔥 处理 CRF 注解完成事件
+async function handleCrfAnnotationComplete(event) {
+  console.log('📨 Received CRF annotation complete event:', event.detail);
+  
+  if (!event.detail.fromChatFlow || !window.pendingTaskAfterAnnotation) {
+    console.log('❌ Not from chat flow or no pending task, ignoring event');
+    return;
+  }
+  
+  const { taskName } = window.pendingTaskAfterAnnotation;
+  
+  try {
+    // 清理CRF注解相关状态
+    window.chatFlowState = null;
+    const pendingTask = window.pendingTaskAfterAnnotation;
+    window.pendingTaskAfterAnnotation = null;
+    
     // 发送确认消息
     setTimeout(() => {
-      addChatMessage(`✅ Upload successfully! We can do ${taskName} now.`, 'ai');
+      addChatMessage(`✅ CRF annotation completed! We can do ${taskName} now.`, 'ai');
       
       // 显示打字指示器并在2秒后启动新任务
       showTypingIndicator();
       setTimeout(async () => {
         hideTypingIndicator();
-        await startNewTask();
+        
+        // 恢复原任务到pending状态并启动
+        if (pendingTask) {
+          window.pendingNewTask = pendingTask;
+          await startNewTask();
+        }
       }, 2000);
       
     }, 200); // 稍微延迟确保页面已完全显示
     
   } catch (error) {
-    console.error('❌ Error handling otherdocs upload complete:', error);
-    addChatMessage('Upload completed, but there was an error starting the task. Please try again.', 'ai');
+    console.error('❌ Error handling CRF annotation complete:', error);
+    addChatMessage('CRF annotation completed, but there was an error starting the task. Please try again.', 'ai');
   }
 }
 
@@ -1256,6 +1380,9 @@ function initMainPageModule(config = {}) {
   
   // 🔥 添加 other documents 上传完成事件监听器
   window.addEventListener('otherdocsUploadComplete', handleOtherDocsUploadComplete);
+  
+  // 🔥 添加 CRF 注解完成事件监听器
+  window.addEventListener('crfAnnotationComplete', handleCrfAnnotationComplete);
   
   console.log('✅ mainpage 模块初始化完成');
 }

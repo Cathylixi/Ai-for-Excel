@@ -71,6 +71,12 @@ const CrfFileSlotSchema = new mongoose.Schema({
   fileSize: { type: Number },
   mimeType: { type: String },
   uploadedAt: { type: Date },
+  // 🔥 持久化与标注相关字段
+  sourcePath: { type: String },
+  annotatedPath: { type: String },
+  annotationReady: { type: Boolean, default: false },
+  annotatedAt: { type: Date },
+  downloadUrl: { type: String },  // 🔥 新增：注解PDF下载链接
   crfUploadResult: {
     crfFormList: { type: mongoose.Schema.Types.Mixed, default: {} },
     crfFormName: { type: mongoose.Schema.Types.Mixed, default: {} },

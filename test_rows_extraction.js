@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { processWordsToRows, analyzeRowDistribution } = require('./backend/services/words_to_rows_processor');
+const { processWordsToRows, analyzeRowDistribution } = require('./backend/services/crf_analysis/words_to_rows_processor');
 
 async function testRowsExtraction() {
   try {

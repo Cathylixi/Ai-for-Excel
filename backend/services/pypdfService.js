@@ -137,7 +137,7 @@ class PypdfService {
       const startTime = Date.now();
       const { stdout, stderr } = await execFileAsync(pythonCmd, [this.pythonScript, tempFilePath], {
         maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large files
-        timeout: 60000 // 60 seconds timeout
+        timeout: 300000 // 5 minutes timeout for large files
       });
       
       const processTime = Date.now() - startTime;
@@ -1520,7 +1520,7 @@ async function extractCrfWordsOnly(fileBuffer, studyId = null) {
       fs.writeFileSync(tempFilePath, fileBuffer);
 
       // Prepare arguments for Python script
-      const pythonScript = path.join(__dirname, 'crf_words_extractor.py');
+      const pythonScript = path.join(__dirname, 'crf_analysis/crf_words_extractor.py');
       const outputDir = tempDir;
       const args = [pythonScript, tempFilePath, outputDir];
       

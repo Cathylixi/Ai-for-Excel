@@ -3,7 +3,7 @@
  */
 
 const { extractCrfWordsOnly } = require('./backend/services/pypdfService');
-const { processWordsToRows } = require('./backend/services/words_to_rows_processor');
+const { processWordsToRows } = require('./backend/services/crf_analysis/words_to_rows_processor');
 const fs = require('fs');
 
 async function testCompleteExtraction() {

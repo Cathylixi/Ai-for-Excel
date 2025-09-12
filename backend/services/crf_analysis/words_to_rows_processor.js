@@ -95,7 +95,7 @@ function processWordsToRows(wordsData, yTolerance = 2.0) {
     let totalWords = 0;
 
     for (const page of wordsData.pages) {
-      console.log(`🔄 Processing page ${page.page_number} - ${page.words.length} words`);
+      // console.log(`🔄 Processing page ${page.page_number} - ${page.words.length} words`);
       
       // Group words into rows for this page
       const rows = groupWordsIntoRows(page.words, yTolerance);
@@ -113,7 +113,7 @@ function processWordsToRows(wordsData, yTolerance = 2.0) {
       totalRows += rows.length;
       totalWords += page.words.length;
       
-      console.log(`✅ Page ${page.page_number}: ${rows.length} rows created from ${page.words.length} words`);
+      // console.log(`✅ Page ${page.page_number}: ${rows.length} rows created from ${page.words.length} words`);
     }
 
     const result = {
@@ -128,7 +128,7 @@ function processWordsToRows(wordsData, yTolerance = 2.0) {
       }
     };
 
-    console.log(`🎉 Row processing completed: ${totalRows} rows from ${totalWords} words across ${processedPages.length} pages`);
+    // console.log(`🎉 Row processing completed: ${totalRows} rows from ${totalWords} words across ${processedPages.length} pages`);
     
     return result;
 

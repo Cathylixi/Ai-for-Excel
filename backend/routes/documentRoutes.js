@@ -19,6 +19,11 @@ const {
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
   uploadSapFile,     // 🔥 新增：专门的SAP上传函数
   getCrfData,        // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
+  generateCrfAnnotationRects,        // 🔥 新增：生成CRF注解矩形参数
+  getCrfAnnotationStatus,           // 🔥 新增：获取CRF注解状态
+  downloadAnnotatedCrf,              // 🔥 新增：下载注解CRF PDF
+  checkExistingSdtmData,            // 🔥 新增：检查现成SDTM数据
+  redrawCrfAnnotationPdf,           // 🔥 新增：仅重绘PDF（跳过GPT）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
   saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 } = require('../controllers/documentController');
@@ -106,5 +111,20 @@ router.post('/studies/:id/generate-adam-outputs', generateAdamToOutputTraceabili
 
 // 🔥 新增：保存数据流可追溯性
 router.post('/studies/:id/save-dataflow', saveDataFlowTraceability);
+
+// 🔥 新增：生成CRF注解矩形参数
+router.post('/studies/:studyId/generate-crf-annotation-rects', generateCrfAnnotationRects);
+
+// 🔥 新增：获取CRF注解状态
+router.get('/studies/:studyId/crf-annotation-status', getCrfAnnotationStatus);
+
+// 🔥 新增：下载注解CRF PDF
+router.get('/studies/:studyId/crf-annotated.pdf', downloadAnnotatedCrf);
+
+// 🔥 新增：检查现成SDTM数据
+router.get('/studies/:studyId/check-existing-sdtm-data', checkExistingSdtmData);
+
+// 🔥 新增：仅重绘PDF（跳过GPT分析）
+router.post('/studies/:studyId/redraw-crf-annotation-pdf', redrawCrfAnnotationPdf);
 
 module.exports = router; 

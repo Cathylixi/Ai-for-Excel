@@ -135,9 +135,9 @@ function calculateFormCoordinates(filteredRows) {
   });
 
   // 统一容差
-  const epsilon = 8;
+  const epsilon = 17;
 
-  console.log(`📐 Form坐标统计: x0_min=${x0_min.toFixed(1)}, x1_max=${x1_max.toFixed(1)}, epsilon=${epsilon}`);
+  // console.log(`📐 Form坐标统计: x0_min=${x0_min.toFixed(1)}, x1_max=${x1_max.toFixed(1)}, epsilon=${epsilon}`);
 
   return {
     x0_min,
@@ -212,8 +212,8 @@ function checkLabelTextRules(row) {
   const lastToken = tokens[tokens.length - 1];
   if (!isInteger(lastToken)) return false;
   
-  // 2. 行内不含"="
-  if (fullText.includes('=')) return false;
+  // 2. 行内不含"=" - 🔥 已移除此规则
+  // if (fullText.includes('=')) return false;
   
   // 3. 行内必须包含数字
   if (!containsNumber(fullText)) return false;
@@ -234,8 +234,8 @@ function checkOidTextRules(row) {
   const firstToken = tokens[0];
   if (!isInteger(firstToken)) return false;
   
-  // 2. 行内不含"="
-  if (fullText.includes('=')) return false;
+  // 2. 行内不含"=" - 🔥 已移除此规则
+  // if (fullText.includes('=')) return false;
   
   // 3. 行内必须包含数字
   if (!containsNumber(fullText)) return false;
@@ -250,7 +250,7 @@ function checkOidTextRules(row) {
  * @returns {Object} 包含LabelForm和OIDForm的对象
  */
 function extractLabelOidFromForm(form, formKey) {
-  console.log(`🔍 处理Form "${formKey}": ${form.filtered_rows?.length || 0}行`);
+  // console.log(`🔍 处理Form "${formKey}": ${form.filtered_rows?.length || 0}行`);
   
   if (!form.filtered_rows || !Array.isArray(form.filtered_rows)) {
     console.warn(`⚠️ Form "${formKey}" 无有效的filtered_rows`);
@@ -274,12 +274,12 @@ function extractLabelOidFromForm(form, formKey) {
     const rowX1 = row.x_max || (row.words && row.words.length > 0 ? row.words[row.words.length - 1].x1 : undefined);
     
     // 🔍 调试：打印每行的详细信息
-    console.log(`🔍 行分析: "${(row.full_text || '').substring(0, 30)}..." | tokens=[${tokens.join(',')}] | x0=${rowX0?.toFixed(1)} x1=${rowX1?.toFixed(1)}`);
+    // console.log(`🔍 行分析: "${(row.full_text || '').substring(0, 30)}..." | tokens=[${tokens.join(',')}] | x0=${rowX0?.toFixed(1)} x1=${rowX1?.toFixed(1)}`);
     
     // Label候选检查
     const labelCoordOk = isLabelCandidate(row, coords);
     const labelTextOk = checkLabelTextRules(row);
-    console.log(`  📋 Label: 坐标${labelCoordOk ? '✅' : '❌'} 文本${labelTextOk ? '✅' : '❌'}`);
+    // console.log(`  📋 Label: 坐标${labelCoordOk ? '✅' : '❌'} 文本${labelTextOk ? '✅' : '❌'}`);
     
     if (labelCoordOk && labelTextOk) {
       const matchIndex = getLastIntegerFromTokens(tokens);
@@ -287,13 +287,13 @@ function extractLabelOidFromForm(form, formKey) {
         match_index: matchIndex,
         content: { ...row } // 复制整行对象
       });
-      console.log(`📋 Label行: "${(row.full_text || '').substring(0, 50)}..." → match_index=${matchIndex}`);
+      // console.log(`📋 Label行: "${(row.full_text || '').substring(0, 50)}..." → match_index=${matchIndex}`);
     }
     
     // OID候选检查
     const oidCoordOk = isOidCandidate(row, coords);
     const oidTextOk = checkOidTextRules(row);
-    console.log(`  🆔 OID: 坐标${oidCoordOk ? '✅' : '❌'} 文本${oidTextOk ? '✅' : '❌'}`);
+    // console.log(`  🆔 OID: 坐标${oidCoordOk ? '✅' : '❌'} 文本${oidTextOk ? '✅' : '❌'}`);
     
     if (oidCoordOk && oidTextOk) {
       const matchIndex = getFirstIntegerFromTokens(tokens);
@@ -301,11 +301,11 @@ function extractLabelOidFromForm(form, formKey) {
         match_index: matchIndex,
         content: { ...row } // 复制整行对象
       });
-      console.log(`🆔 OID行: "${(row.full_text || '').substring(0, 50)}..." → match_index=${matchIndex}`);
+      // console.log(`🆔 OID行: "${(row.full_text || '').substring(0, 50)}..." → match_index=${matchIndex}`);
     }
   });
 
-  console.log(`✅ Form "${formKey}": ${labelCandidates.length}个Label行, ${oidCandidates.length}个OID行`);
+  // console.log(`✅ Form "${formKey}": ${labelCandidates.length}个Label行, ${oidCandidates.length}个OID行`);
 
   return {
     LabelForm: labelCandidates,
@@ -324,10 +324,10 @@ function addLabelOidToAllForms(crfFormList) {
     return crfFormList;
   }
 
-  console.log('🚀 开始为所有Forms添加LabelForm和OIDForm...');
+  // console.log('🚀 开始为所有Forms添加LabelForm和OIDForm...');
   
   const formKeys = Object.keys(crfFormList);
-  console.log(`📊 共${formKeys.length}个Forms需要处理: ${formKeys.join(', ')}`);
+  // console.log(`📊 共${formKeys.length}个Forms需要处理: ${formKeys.join(', ')}`);
 
   formKeys.forEach(formKey => {
     const form = crfFormList[formKey];
@@ -342,7 +342,7 @@ function addLabelOidToAllForms(crfFormList) {
     form.Mapping = mapping;
   });
 
-  console.log('🎉 所有Forms的Label/OID提取完成');
+  // console.log('🎉 所有Forms的Label/OID提取完成');
   return crfFormList;
 }
 

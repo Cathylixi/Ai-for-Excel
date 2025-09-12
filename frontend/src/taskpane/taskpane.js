@@ -163,6 +163,9 @@ function showStep(step) {
   } else if (step === 2 && typeof window !== 'undefined' && window.uploadContext === 'from_chat') {
     // Step 2 in chat-driven flow: hide global nav (Back/Next) completely
     if (navContainer) navContainer.style.display = 'none';
+  } else if (step === 8) {
+    // Step 8 (CRF Annotation): 隐藏导航按钮，通过专用按钮控制
+    if (navContainer) navContainer.style.display = 'none';
   } else {
     // 其他步骤：显示导航按钮
     if (navContainer) navContainer.style.display = 'flex';
@@ -458,6 +461,17 @@ function notifyModuleStepChange(stepNumber) {
     window.MainPageModule.onStepEnter(stepNumber);
   } else if (stepNumber >= 3 && stepNumber <= 7 && window.CostEstimateModule && window.CostEstimateModule.onStepEnter) {
     window.CostEstimateModule.onStepEnter(stepNumber);
+  } else if (stepNumber === 8) {
+    // Step 8: CRF Annotation
+    const container = document.getElementById('crfannotation-container');
+    if (container && window.initCrfAnnotationPage) {
+      const config = {
+        API_BASE_URL: API_BASE_URL,
+        studyId: window.currentDocumentId,
+        container: container
+      };
+      window.initCrfAnnotationPage(config);
+    }
   }
 }
 

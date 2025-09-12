@@ -43,7 +43,7 @@ function extractFormTitleRows(rowsData, formNamePatterns) {
               original_text: text
             });
             
-            console.log(`📋 发现Form: "${formName}" 在第${page.page_number}页第${row.row_index}行`);
+            // console.log(`📋 发现Form: "${formName}" 在第${page.page_number}页第${row.row_index}行`);
             break;
           }
         } catch (e) {
@@ -110,7 +110,7 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
       endRowIndex = nextSeg.titles[0].row_index - 1; // 直到“下一个不同标题”的前一行
     }
 
-    console.log(`🔍 段处理: "${seg.form_name}" 从第${startPage}页到第${endPage}页(前一行)`);
+    // console.log(`🔍 段处理: "${seg.form_name}" 从第${startPage}页到第${endPage}页(前一行)`);
 
     const collectedRows = [];
     const collectedPages = new Set();
@@ -143,10 +143,10 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
           try {
             const regex = new RegExp(pattern, 'i');
             if (regex.test(row.full_text)) { isUnwanted = true; matchedPattern = pattern; break; }
-          } catch (e) { console.warn(`⚠️ Invalid pattern: ${pattern}`, e.message); }
+          } catch (e) { /* console.warn(`⚠️ Invalid pattern: ${pattern}`, e.message); */ }
         }
         if (isUnwanted) {
-          console.log(`🗑️ 过滤行: "${row.full_text.substring(0, 80)}..." (匹配pattern: ${matchedPattern})`);
+          // console.log(`🗑️ 过滤行: "${row.full_text.substring(0, 80)}..." (匹配pattern: ${matchedPattern})`);
           return;
         }
 
@@ -160,9 +160,12 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
       formsByTitle[formKey] = {
         title: seg.form_name,
         normalized_title: seg.normalized_name,
-        title_positions: seg.titles.map(t => t.title_row || t),
+        title_positions: seg.titles.map(t => ({
+          ...(t.title_row || t),           // 保留原有的行数据
+          page_number: t.page_number       // 🆕 添加页面号
+        })),
         segments: [],
-        pages: [],
+        pages: seg.titles.map(t => t.page_number).filter(Boolean), // 🆕 简化逻辑：直接从标题页面提取
         extracted: true,
         is_multi_page: false,
         row_count: 0,
@@ -182,15 +185,13 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
     };
     formsByTitle[formKey].segments.push(segmentRecord);
 
-    // 聚合更新整体统计
-    const unionPages = new Set([ ...(formsByTitle[formKey].pages || []), ...segmentRecord.pages ]);
-    formsByTitle[formKey].pages = Array.from(unionPages).sort((a, b) => a - b);
+    // 🔥 删除复杂的页面聚合逻辑，使用简化的标题页面逻辑
     formsByTitle[formKey].is_multi_page = formsByTitle[formKey].pages.length > 1;
     formsByTitle[formKey].row_count += segmentRecord.row_count;
     formsByTitle[formKey].word_count += segmentRecord.word_count;
     formsByTitle[formKey].full_text = [formsByTitle[formKey].full_text, segmentRecord.full_text].filter(Boolean).join(' ');
 
-    console.log(`✅ 段完成: "${seg.form_name}" 收集${segmentRecord.row_count}行, ${segmentRecord.word_count}词, 页: ${segmentRecord.pages.join(', ')}`);
+    // console.log(`✅ 段完成: "${seg.form_name}" 收集${segmentRecord.row_count}行, ${segmentRecord.word_count}词, 页: ${segmentRecord.pages.join(', ')}`);
   });
   
   // 3) 输出扁平化：直接使用首段的 filtered_rows，移除 segments
@@ -201,7 +202,7 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
   });
 
   // 4) 为所有Forms添加LabelForm和OIDForm
-  console.log('🎯 第4步：提取LabelForm和OIDForm...');
+  // console.log('🎯 第4步：提取LabelForm和OIDForm...');
   const formsWithLabelOid = addLabelOidToAllForms(formsByTitle);
   
   return formsWithLabelOid;
@@ -255,13 +256,13 @@ function mergeCrossPageForms(forms) {
           full_text: formList.map(f => f.full_text).join(' ')
         };
         
-        console.log(`🔗 合并Form "${title}" 跨页: ${pages.join(', ')} (${mergedForms[title].row_count}行)`);
+        // console.log(`🔗 合并Form "${title}" 跨页: ${pages.join(', ')} (${mergedForms[title].row_count}行`);
       } else {
         // 页码不连续，分别保存
         formList.forEach(form => {
           const key = `${title}_PAGE_${form.page_number}`;
           mergedForms[key] = form;
-          console.log(`📄 保留独立Form "${key}" 在第${form.page_number}页`);
+          // console.log(`📄 保留独立Form "${key}" 在第${form.page_number}页`);
         });
       }
     }
@@ -278,7 +279,7 @@ function mergeCrossPageForms(forms) {
  */
 function processCrfForms(rowsData, identifiedPatterns) {
   try {
-    console.log('🚀 开始处理CRF Forms...');
+    // console.log('🚀 开始处理CRF Forms...');
     
     // 检查输入数据
     if (!rowsData.success || !identifiedPatterns.success) {
@@ -290,7 +291,7 @@ function processCrfForms(rowsData, identifiedPatterns) {
     }
     
     // 1. 提取Form标题行
-    console.log('📋 第1步：提取Form标题...');
+    // console.log('📋 第1步：提取Form标题...');
     const formTitles = extractFormTitleRows(rowsData, identifiedPatterns.form_name_patterns || []);
     
     if (formTitles.length === 0) {
@@ -301,10 +302,10 @@ function processCrfForms(rowsData, identifiedPatterns) {
       };
     }
     
-    console.log(`✅ 发现${formTitles.length}个Form标题`);
+    // console.log(`✅ 发现${formTitles.length}个Form标题`);
     
     // 2. 为每个Form分配内容行
-    console.log('📝 第2步：分配Form内容...');
+    // console.log('📝 第2步：分配Form内容...');
     const unwantedPatterns = [
       ...(identifiedPatterns.header_patterns || []),
       ...(identifiedPatterns.footer_patterns || []),
@@ -317,15 +318,15 @@ function processCrfForms(rowsData, identifiedPatterns) {
     ];
     
     // 🔍 调试：打印所有unwanted patterns
-    console.log(`🔍 Unwanted patterns (${unwantedPatterns.length} total):`);
-    unwantedPatterns.forEach((pattern, index) => {
-      console.log(`  ${index + 1}. "${pattern}"`);
-    });
+    // console.log(`🔍 Unwanted patterns (${unwantedPatterns.length} total):`);
+    // unwantedPatterns.forEach((pattern, index) => {
+    //   console.log(`  ${index + 1}. "${pattern}"`);
+    // });
     
     const formContents = assignRowsToForms(rowsData, formTitles, unwantedPatterns);
     
     // 3. 已改为Segments聚合：不再进行旧的跨页合并
-    console.log('🔗 第3步：Segments聚合完成（已替代跨页合并）');
+    // console.log('🔗 第3步：Segments聚合完成（已替代跨页合并）');
     
     // 4. 生成crfFormName数据
     const formNames = Object.keys(formContents);
@@ -337,8 +338,8 @@ function processCrfForms(rowsData, identifiedPatterns) {
       unique_titles: [...new Set(formTitles.map(t => t.form_name))]
     };
     
-    console.log(`🎉 CRF Form处理完成: ${formNames.length}个Forms (Segments聚合)`);
-    console.log(`📋 Form列表: ${formNames.join(', ')}`);
+    // console.log(`🎉 CRF Form处理完成: ${formNames.length}个Forms (Segments聚合)`);
+    // console.log(`📋 Form列表: ${formNames.join(', ')}`);
     
     return {
       crfFormList: formContents,

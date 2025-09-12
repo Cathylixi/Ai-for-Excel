@@ -1,9 +1,10 @@
 const OpenAI = require('openai');
 const cheerio = require('cheerio');
 
-// 初始化OpenAI客户端
+// 初始化OpenAI客户端（延长请求超时以支持大型表单处理）
 const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY
+  apiKey: process.env.OPENAI_API_KEY,
+  timeout: 300000 // 5分钟超时上限（单次调用）
 });
 
 /**
@@ -97,7 +98,7 @@ Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONL
         }
 
         if (analysis && analysis.isAssessmentSchedule && Number(analysis.confidence) > 0.7) {
-          console.log(`✅ Found PDF Assessment Schedule at index ${i}, confidence ${analysis.confidence}`);
+          // console.log(`✅ Found PDF Assessment Schedule at index ${i}, confidence ${analysis.confidence}`);
           return {
             tableIndex: typeof table.table_index === 'number' ? table.table_index : i,
             data: data,
@@ -110,7 +111,7 @@ Is this the MAIN comprehensive Schedule of Assessment for the study? Respond ONL
           };
         }
       } catch (apiError) {
-        console.warn(`⚠️ AI identification failed for PDF table ${i}: ${apiError.message}`);
+        // console.warn(`⚠️ AI identification failed for PDF table ${i}: ${apiError.message}`);
       }
 
       // Small delay to avoid bursting the API
@@ -228,7 +229,7 @@ Can this table be used to create an SDTM visit schedule? Respond ONLY with JSON:
         }
         
       } catch (apiError) {
-        console.warn(`⚠️ AI API调用失败 (表格 ${i}):`, apiError.message);
+        // console.warn(`⚠️ AI API调用失败 (表格 ${i}):`, apiError.message);
         continue; // 继续检查下一个表格
       }
       
@@ -422,10 +423,51 @@ ${head}`;
   }
 }
 
+/**
+ * Generic GPT Chat Completion wrapper
+ * @param {Array} messages - Array of message objects {role, content}
+ * @param {Object} options - OpenAI options (temperature, max_tokens, model, etc.)
+ * @returns {Promise<string>} GPT response content
+ */
+async function getChatCompletion(messages, options = {}) {
+  try {
+    if (!process.env.OPENAI_API_KEY) {
+      throw new Error('OPENAI_API_KEY not configured');
+    }
+
+    const defaultOptions = {
+      model: 'gpt-4',
+      temperature: 0.3,
+      max_tokens: 1000
+    };
+
+    const finalOptions = { ...defaultOptions, ...options };
+
+    console.log(`🤖 调用GPT模型: ${finalOptions.model}`);
+    
+    const response = await openai.chat.completions.create({
+      ...finalOptions,
+      messages: messages
+    });
+
+    const content = response.choices?.[0]?.message?.content;
+    if (!content) {
+      throw new Error('GPT returned empty response');
+    }
+
+    return content.trim();
+
+  } catch (error) {
+    console.error('❌ GPT API调用失败:', error.message);
+    throw error;
+  }
+}
+
 module.exports = {
   identifyAssessmentScheduleWithAI,
   extractStudyNumber,
   identifyAssessmentScheduleForPdfTables,
+  getChatCompletion,
   /**
    * Identify repeating header/footer/page-number patterns and form name patterns
    * from first N pages' rows (line-level text) of a CRF PDF.
@@ -506,7 +548,7 @@ ANALYZE THESE PAGES:\n${JSON.stringify(pagesText).slice(0, 12000)}`;
           new RegExp(pattern); // Test if valid regex
           return pattern.length > 2 && pattern.length < 500; // Reasonable length
         } catch (e) {
-          console.warn(`❌ Invalid regex pattern: ${pattern}`, e.message);
+          // console.warn(`❌ Invalid regex pattern: ${pattern}`, e.message);
           return false;
         }
       };
@@ -525,11 +567,11 @@ ANALYZE THESE PAGES:\n${JSON.stringify(pagesText).slice(0, 12000)}`;
       };
 
       // Log validation results
-      console.log(`✅ Pattern validation results:`);
-      console.log(`📋 Header patterns: ${result.header_patterns.length}`);
-      console.log(`📋 Footer patterns: ${result.footer_patterns.length}`);
-      console.log(`📋 Page number patterns: ${result.page_number_patterns.length}`);
-      console.log(`📋 Form name patterns: ${result.form_name_patterns.length}`);
+      // console.log(`✅ Pattern validation results:`);
+      // console.log(`📋 Header patterns: ${result.header_patterns.length}`);
+      // console.log(`📋 Footer patterns: ${result.footer_patterns.length}`);
+      // console.log(`📋 Page number patterns: ${result.page_number_patterns.length}`);
+      // console.log(`📋 Form name patterns: ${result.form_name_patterns.length}`);
       
       return result;
     } catch (e) {

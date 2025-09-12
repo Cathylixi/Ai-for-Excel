@@ -18,6 +18,7 @@
     <link href="mainpage/mainpage.css" rel="stylesheet" type="text/css" />
     <link href="costestimate/costestimate.css" rel="stylesheet" type="text/css" />
     <link href="otherdocuments/otherdocuments.css" rel="stylesheet" type="text/css" />
+    <link href="crfannotation/crfannotation.css" rel="stylesheet" type="text/css" />
 </head>
 
 <body class="ms-font-m ms-welcome ms-Fabric">
@@ -81,6 +82,13 @@
             </div>
         </div>
 
+        <!-- Step 8: CRF Annotation -->
+        <div class="wizard-page" data-step="8">
+            <div id="crfannotation-container" class="step-container">
+                <!-- 内容由 crfannotation.js 动态插入 -->
+            </div>
+        </div>
+
         <!-- 导航按钮 -->
         <div class="wizard-nav">
             <button class="ms-Button" id="wizard-back-btn">
@@ -106,6 +114,7 @@
     <script src="costestimate/costestimate.js"></script>
     <script src="sasanalysis/sasanalysis.js"></script>
     <script src="otherdocuments/otherdocuments.js"></script>
+    <script src="crfannotation/crfannotation.js"></script>
     
     <!-- 主控制器脚本 -->
     <script src="taskpane.js"></script>

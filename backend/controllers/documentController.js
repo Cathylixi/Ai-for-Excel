@@ -3,8 +3,8 @@ const Document = require('../models/documentModel');
 const Study = require('../models/studyModel');
 const { parseWordDocumentStructure } = require('../services/wordParserService');
 const { processPdfWithPypdf, formatResultForDatabase, formatResultForCrfSap, pypdfService, extractCrfPositions, extractCrfWordsOnly } = require('../services/pypdfService');
-const { processWordsToRows } = require('../services/words_to_rows_processor');
-const { processCrfForms } = require('../services/crf_form_processor');
+const { processWordsToRows } = require('../services/crf_analysis/words_to_rows_processor');
+const { processCrfForms } = require('../services/crf_analysis/crf_form_processor');
 const { analyzeSDTMMapping } = require('../services/sdtmAnalysisService');
 const { performADaMAnalysis, generateOutputsFromDomains } = require('../services/adamAnalysisService');
 
@@ -436,12 +436,15 @@ async function getStudyDocuments(req, res) {
   try {
     const { studyIdentifier } = req.params;
     // 允许传入 studyNumber 或 _id，两者择一
+    // 🔥 优化：只选择必要字段，避免加载巨大的crfUploadResult
+    const selectFields = 'studyNumber files.protocol files.crf.uploaded files.crf.originalName files.crf.fileSize files.crf.uploadedAt files.sap';
+    
     let study = null;
     if (studyIdentifier && studyIdentifier.match(/^[0-9a-fA-F]{24}$/)) {
-      study = await Study.findById(studyIdentifier).lean();
+      study = await Study.findById(studyIdentifier).select(selectFields).lean();
     }
     if (!study) {
-      study = await Study.findOne({ studyNumber: studyIdentifier }).lean();
+      study = await Study.findOne({ studyNumber: studyIdentifier }).select(selectFields).lean();
     }
 
     if (!study) {
@@ -1388,6 +1391,30 @@ async function uploadCrfFile(req, res) {
     study.files = study.files || {};
     study.files.crf = study.files.crf || {};
 
+    // 🔥 Step 1: 持久化原始PDF（仅在本次请求有文件时执行）
+    try {
+      if (req.file && req.file.mimetype === 'application/pdf') {
+        const { CRF_TMP_DIR } = require('../config/crfConfig');
+        const fs = require('fs');
+        const path = require('path');
+        const filename = `crf_${id}_${Date.now()}.pdf`;
+        const fullPath = path.join(CRF_TMP_DIR, filename);
+        await fs.promises.writeFile(fullPath, req.file.buffer);
+
+        study.files.crf.sourcePath = fullPath;
+        study.files.crf.originalName = req.file.originalname;
+        study.files.crf.fileSize = req.file.size;
+        study.files.crf.mimeType = req.file.mimetype;
+        study.files.crf.uploaded = true;
+        study.files.crf.uploadedAt = new Date();
+
+        await study.save();
+        // console.log('💾 已持久化CRF原始PDF到: ', fullPath);
+      }
+    } catch (persistErr) {
+      console.warn('⚠️ 持久化原PDF失败（继续解析流程）:', persistErr.message);
+    }
+
     // 默认解析结果（当解析失败时使用降级结构）
     let crfParseResult = {
       extractedText: '',
@@ -1409,16 +1436,16 @@ async function uploadCrfFile(req, res) {
     
     try {
       if (req.file.mimetype === 'application/pdf') {
-        console.log('📄 开始解析CRF PDF文件...');
+        // console.log('📄 开始解析CRF PDF文件...');
         const pypdfResult = await processPdfWithPypdf(req.file.buffer);
         crfParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用CRF专用解析
         
         // 🔥 新增：提取CRF PDF的词位置信息（简化版）
         try {
-          console.log('🔍 开始提取CRF词位置信息...');
+          // console.log('🔍 开始提取CRF词位置信息...');
           const wordsResult = await extractCrfWordsOnly(req.file.buffer, id);
-          console.log(`✅ CRF词位置提取完成`);
-          console.log(`📊 CRF统计: ${wordsResult.metadata?.total_words || 0} 词, ${wordsResult.metadata?.total_pages || 0} 页`);
+          // console.log(`✅ CRF词位置提取完成`);
+          // console.log(`📊 CRF统计: ${wordsResult.metadata?.total_words || 0} 词, ${wordsResult.metadata?.total_pages || 0} 页`);
           
           // 保存词位置结果
           if (wordsResult.success) {
@@ -1426,9 +1453,9 @@ async function uploadCrfFile(req, res) {
             
             // 🔥 新增：将词位置转换为行位置
             try {
-              console.log('🔄 开始将词位置转换为行位置...');
+              // console.log('🔄 开始将词位置转换为行位置...');
               const rowsResult = processWordsToRows(wordsResult, 3.5); // 使用3.5pt的Y坐标容差
-              console.log(`✅ 行位置转换完成: ${rowsResult.metadata?.total_rows || 0} 行, ${rowsResult.metadata?.total_words || 0} 词`);
+              // console.log(`✅ 行位置转换完成: ${rowsResult.metadata?.total_rows || 0} 行, ${rowsResult.metadata?.total_words || 0} 词`);
               
               if (rowsResult.success) {
                 rowsWithPosition = rowsResult;
@@ -1448,12 +1475,12 @@ async function uploadCrfFile(req, res) {
                       
                       // 🔥 新增：基于AI patterns和行数据提取完整的Form信息
                       try {
-                        console.log('🎯 开始基于AI patterns处理CRF Forms...');
+                        // console.log('🎯 开始基于AI patterns处理CRF Forms...');
                         const formData = processCrfForms(rowsResult, identifiedPatterns);
                         
                         // 更新crfFormList和crfFormName（不再为空）
                         if (formData && formData.crfFormList) {
-                          console.log(`✅ 成功处理${formData.crfFormName.total_forms}个CRF Forms`);
+                          // console.log(`✅ 成功处理${formData.crfFormName.total_forms}个CRF Forms`);
                           
                           // 将处理结果存储到变量中，稍后保存到数据库
                           global.processedCrfFormList = formData.crfFormList;
@@ -1490,7 +1517,7 @@ async function uploadCrfFile(req, res) {
         }
         
       } else if (req.file.mimetype === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        console.log('📝 开始解析CRF Word文档...');
+        // console.log('📝 开始解析CRF Word文档...');
         crfParseResult = await parseWordDocumentStructure(req.file.buffer, { skipAssessmentSchedule: true }); // 🔥 CRF跳过AI
       } else if (req.file.mimetype === 'application/msword') {
         crfParseResult.extractedText = req.file.buffer.toString('utf8');
@@ -1521,7 +1548,7 @@ async function uploadCrfFile(req, res) {
 
     // 使用原子$set更新，避免并发保存互相覆盖
     const crfUploadedAt = new Date();
-    await Study.findByIdAndUpdate(
+    const updatedStudy = await Study.findByIdAndUpdate(
       id,
       {
         $set: {
@@ -1530,6 +1557,8 @@ async function uploadCrfFile(req, res) {
           'files.crf.fileSize': req.file.size,
           'files.crf.mimeType': req.file.mimetype,
           'files.crf.uploadedAt': crfUploadedAt,
+          // 🔥 **修复**: 确保包含sourcePath字段
+          'files.crf.sourcePath': study.files.crf.sourcePath,
           'files.crf.crfUploadResult': {
             crfFormList: global.processedCrfFormList || {},
             crfFormName: global.processedCrfFormName || { names: [], total_forms: 0 },
@@ -1541,6 +1570,10 @@ async function uploadCrfFile(req, res) {
       },
       { new: true }
     );
+
+    // 🎨 **移除自动注解**: CRF上传后不自动生成注解，等待用户手动触发
+    console.log('✅ CRF上传完成，注解生成将等待用户手动触发');
+    // 注解生成现在通过 /generate-crf-annotation-rects API 手动触发
 
     return res.json({
       success: true,
@@ -1892,6 +1925,758 @@ async function saveDataFlowTraceability(req, res) {
   }
 }
 
+// 🔥 新增：生成CRF注解矩形参数
+async function generateCrfAnnotationRects(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    if (!studyId) {
+      return res.status(400).json({
+        success: false,
+        message: '缺少studyId参数'
+      });
+    }
+
+    console.log(`🚀 开始为Study ${studyId}生成CRF注解矩形参数...`);
+
+    // 获取Study数据
+    const study = await Study.findById(studyId);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // 检查是否有CRF数据
+    if (!study.files?.crf?.crfUploadResult) {
+      return res.status(404).json({
+        success: false,
+        message: 'No CRF data found for this study'
+      });
+    }
+
+    // 🧠 **第一步**: 生成SDTM映射
+    console.log('🧠 开始生成SDTM映射...');
+    const { generateSdtmMappingForAllForms } = require('../services/crf_analysis/sdtmMappingService');
+    
+    // 克隆crfFormList并生成SDTM映射
+    let updatedCrfFormList = JSON.parse(JSON.stringify(study.files.crf.crfUploadResult.crfFormList));
+    updatedCrfFormList = await generateSdtmMappingForAllForms(updatedCrfFormList);
+    
+    // 将更新后的数据写回数据库
+    await Study.findByIdAndUpdate(
+      studyId,
+      {
+        $set: {
+          'files.crf.crfUploadResult.crfFormList': updatedCrfFormList
+        }
+      }
+    );
+    
+    console.log('✅ SDTM映射生成并保存完成');
+    
+    // 🎨 **第二步**: 分批生成注解并写入PDF（每批5个表格，5分钟超时）
+    const updatedStudy = await Study.findById(studyId);
+    const batchResult = await annotatePdfInBatches(updatedStudy, studyId, { batchSize: 5, batchTimeoutMs: 5 * 60 * 1000 });
+
+    res.json({
+      success: true,
+      message: 'CRF annotation process (batched) started and completed',
+      data: batchResult
+    });
+
+  } catch (error) {
+    console.error('❌ 生成CRF注解矩形参数失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to generate CRF annotation rectangles',
+      error: error.message
+    });
+  }
+}
+
+// 🎨 **辅助函数**: 生成注解PDF的输出路径
+function generateAnnotatedPdfPath(sourcePath) {
+  const path = require('path');
+  const ext = path.extname(sourcePath);  // .pdf
+  const base = path.basename(sourcePath, ext);  // filename
+  const dir = path.dirname(sourcePath);  // directory
+  
+  // 生成带_annotated后缀的文件名
+  const annotatedFileName = `${base}_annotated${ext}`;
+  const outputPath = path.join(dir, annotatedFileName);
+  
+  console.log('📁 路径生成:', {
+    source: sourcePath,
+    output: outputPath,
+    fileName: annotatedFileName
+  });
+  
+  return outputPath;
+}
+
+// 🎨 **辅助函数**: 调用Python脚本（可配置超时）
+async function callPdfAnnotationScriptWithTimeout(sourcePath, rectsByPage, outputPath, timeoutMs) {
+  const { spawn } = require('child_process');
+  const path = require('path');
+
+  const scriptPath = path.join(__dirname, '../services/pdf_annotate.py');
+
+  return new Promise((resolve, reject) => {
+    // console.log('🐍 [Batch] 启动Python进程...');
+    // console.log('📝 脚本路径:', scriptPath);
+    // console.log('📄 源PDF:', sourcePath);
+    // console.log('📊 本批矩形页数:', Object.keys(rectsByPage || {}).length);
+
+    const rectsJson = JSON.stringify(rectsByPage || {});
+
+    const pythonProcess = spawn('python3', [
+      scriptPath,
+      sourcePath,
+      rectsJson,
+      outputPath
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let stdout = '';
+    let stderr = '';
+
+    pythonProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      stdout += output;
+      console.log(output.trim()); // 直接输出Python的打印内容
+    });
+
+    pythonProcess.stderr.on('data', (data) => {
+      const error = data.toString();
+      stderr += error;
+      console.warn('🐍 [Batch] Python错误:', error.trim());
+    });
+
+    const killTimer = setTimeout(() => {
+      console.warn(`⏰ [Batch] Python进程超时(${Math.round(timeoutMs/1000)}s)，强制终止`);
+      try { pythonProcess.kill('SIGTERM'); } catch (_) {}
+      reject(new Error('Python脚本执行超时'));
+    }, timeoutMs);
+
+    pythonProcess.on('close', (code) => {
+      clearTimeout(killTimer);
+      // console.log('🐍 [Batch] Python进程结束，退出代码:', code);
+      if (code === 0) {
+        resolve({ success: true, stdout: stdout.trim(), outputPath });
+      } else {
+        reject(new Error(`Python脚本失败，退出代码: ${code}\n标准错误: ${stderr}\n标准输出: ${stdout}`));
+      }
+    });
+
+    pythonProcess.on('error', (err) => {
+      clearTimeout(killTimer);
+      console.error('❌ [Batch] 启动Python进程失败:', err);
+      reject(new Error(`启动Python进程失败: ${err.message}`));
+    });
+  });
+}
+
+// 🎨 **辅助函数**: 调用Python脚本生成注解PDF
+async function callPdfAnnotationScript(sourcePath, rectsByPage, outputPath) {
+  const { spawn } = require('child_process');
+  const path = require('path');
+  
+  // Python脚本路径
+  const scriptPath = path.join(__dirname, '../services/pdf_annotate.py');
+  
+  return new Promise((resolve, reject) => {
+    console.log('🐍 启动Python进程...');
+    console.log('📝 脚本路径:', scriptPath);
+    console.log('📄 源PDF:', sourcePath);
+    console.log('📊 矩形数据页数:', Object.keys(rectsByPage).length);
+    
+    // 将矩形数据转换为JSON字符串
+    const rectsJson = JSON.stringify(rectsByPage);
+    
+    // 启动Python进程
+    const pythonProcess = spawn('python3', [
+      scriptPath,
+      sourcePath,
+      rectsJson,  // 直接传递JSON字符串
+      outputPath
+    ], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    // 收集标准输出
+    pythonProcess.stdout.on('data', (data) => {
+      const output = data.toString();
+      stdout += output;
+      console.log(output.trim()); // 直接输出Python的打印内容
+    });
+    
+    // 收集标准错误
+    pythonProcess.stderr.on('data', (data) => {
+      const error = data.toString();
+      stderr += error;
+      console.warn('🐍 Python错误:', error.trim());
+    });
+    
+    // 进程结束处理
+    pythonProcess.on('close', (code) => {
+      // console.log('🐍 Python进程结束，退出代码:', code);
+      
+      if (code === 0) {
+        console.log('✅ Python脚本执行成功');
+        resolve({
+          success: true,
+          stdout: stdout.trim(),
+          outputPath: outputPath
+        });
+      } else {
+        console.error('❌ Python脚本执行失败');
+        reject(new Error(`Python脚本失败，退出代码: ${code}\n标准错误: ${stderr}\n标准输出: ${stdout}`));
+      }
+    });
+    
+    // 进程错误处理
+    pythonProcess.on('error', (err) => {
+      console.error('❌ 启动Python进程失败:', err);
+      reject(new Error(`启动Python进程失败: ${err.message}`));
+    });
+    
+    // 设置超时 (20分钟) - 增加时间以支持大型CRF文件处理
+    const timeout = setTimeout(() => {
+      console.warn('⏰ Python进程超时，强制终止');
+      pythonProcess.kill('SIGTERM');
+      reject(new Error('Python脚本执行超时'));
+    }, 20 * 60 * 1000);
+    
+    pythonProcess.on('close', () => {
+      clearTimeout(timeout);
+    });
+  });
+}
+
+// 🎨 **新增**: 分批注解PDF（每批5个表格，单批5分钟超时）
+async function annotatePdfInBatches(studyData, studyId, options = {}) {
+  const fs = require('fs');
+  const path = require('path');
+  const { generateAnnotationRectsForForms } = require('../services/crf_analysis/annotationRectService');
+
+  const batchSize = options.batchSize || 5;
+  const batchTimeoutMs = options.batchTimeoutMs || (5 * 60 * 1000);
+
+  const sourcePath = studyData?.files?.crf?.sourcePath;
+  if (!sourcePath) throw new Error('源PDF路径不存在');
+
+  const crfFormList = studyData?.files?.crf?.crfUploadResult?.crfFormList || {};
+  const formKeys = Object.keys(crfFormList);
+  const totalForms = formKeys.length;
+  if (totalForms === 0) {
+    console.log('⏸️ 无Form可注解');
+    return { totalForms: 0, totalBatches: 0, processedForms: 0 };
+  }
+
+  console.log(`🎯 分批注解启动：共 ${totalForms} 个表格，批大小=${batchSize}，单批超时=${Math.round(batchTimeoutMs/1000)}秒`);
+
+  // 计算输出路径与工作路径
+  const finalOutputPath = generateAnnotatedPdfPath(sourcePath);
+  const workPathA = finalOutputPath;
+  const workPathB = finalOutputPath.replace(/\.pdf$/i, '_work.pdf');
+
+  let currentInput = sourcePath;
+  let lastOutput = null;
+
+  let colorState = { map: new Map(), index: 0 };
+
+  const totalBatches = Math.ceil(totalForms / batchSize);
+  let processedForms = 0;
+  let succeededBatches = 0;
+  let failedBatches = 0;
+
+  for (let batchIndex = 0; batchIndex < totalBatches; batchIndex++) {
+    const start = batchIndex * batchSize;
+    const end = Math.min(start + batchSize, totalForms);
+    const batchFormKeys = formKeys.slice(start, end);
+
+    // console.log(`\n🔄 开始处理第 ${batchIndex + 1}/${totalBatches} 批：表格索引范围 [${start + 1} - ${end}]，Keys: [${batchFormKeys.join(', ')}]`);
+
+    // 生成本批矩形
+    const { rectsByPage, colorState: updatedColorState } = generateAnnotationRectsForForms(studyData, batchFormKeys, colorState);
+    colorState = updatedColorState;
+
+    const batchRectsCount = Object.values(rectsByPage).reduce((s, arr) => s + (arr?.length || 0), 0);
+    // console.log(`📦 本批矩形总数: ${batchRectsCount}`);
+
+    if (batchRectsCount === 0) {
+      console.log('⏭️ 本批无矩形，跳过Python调用');
+      processedForms = end;
+      console.log(`✅ 已分批注解至第 ${processedForms} 个表格 / 共 ${totalForms}`);
+      continue;
+    }
+
+    // 切换输出文件以避免读写同一路径冲突
+    const outputPath = (batchIndex % 2 === 0) ? workPathA : workPathB;
+
+    try {
+      await callPdfAnnotationScriptWithTimeout(currentInput, rectsByPage, outputPath, batchTimeoutMs);
+      lastOutput = outputPath;
+      currentInput = outputPath; // 下一批以上一批的输出作为输入
+      succeededBatches++;
+      processedForms = end;
+      console.log(`✅ 本批完成。已分批注解至第 ${processedForms} 个表格 / 共 ${totalForms}`);
+    } catch (err) {
+      console.warn(`❌ 本批失败：${err.message}。将继续下一批。`);
+      failedBatches++;
+      // 失败时不更新 currentInput，继续用上一轮的有效PDF
+    }
+  }
+
+  // 确保最终文件位于 finalOutputPath
+  try {
+    if (lastOutput && lastOutput !== finalOutputPath) {
+      fs.copyFileSync(lastOutput, finalOutputPath);
+      console.log('📁 已拷贝最终输出文件到:', finalOutputPath);
+    }
+  } catch (copyErr) {
+    console.warn('⚠️ 拷贝最终输出失败:', copyErr.message);
+  }
+
+  // 更新数据库：标记完成 & 下载链接
+  const downloadUrl = `/api/studies/${studyId}/crf-annotated.pdf`;
+  await Study.findByIdAndUpdate(
+    studyId,
+    {
+      $set: {
+        'files.crf.annotatedPath': finalOutputPath,
+        'files.crf.annotationReady': true,
+        'files.crf.annotatedAt': new Date(),
+        'files.crf.downloadUrl': downloadUrl
+      }
+    }
+  );
+
+  console.log(`🎉 分批注解完成：成功批次 ${succeededBatches}，失败批次 ${failedBatches}，最终下载链接: ${downloadUrl}`);
+
+  return {
+    studyId,
+    totalForms,
+    totalBatches,
+    processedForms,
+    succeededBatches,
+    failedBatches,
+    downloadUrl
+  };
+}
+
+// 🎨 **新增**: 上传完成后自动生成注解PDF
+async function generateAnnotatedPdfAfterUpload(studyData, studyId) {
+  console.log('🎨 generateAnnotatedPdfAfterUpload 开始...');
+  // console.log('📋 Study ID:', studyId);
+  
+  // 1. 检查是否有源PDF路径
+  const sourcePath = studyData?.files?.crf?.sourcePath;
+  if (!sourcePath) {
+    throw new Error('源PDF路径不存在，无法生成注解');
+  }
+  console.log('📄 源PDF路径:', sourcePath);
+  
+  // 2. 检查是否有CRF数据
+  if (!studyData?.files?.crf?.crfUploadResult?.crfFormList) {
+    throw new Error('CRF表单数据不存在，无法生成注解');
+  }
+  
+  const formCount = Object.keys(studyData.files.crf.crfUploadResult.crfFormList).length;
+  console.log('📊 CRF表单数量:', formCount);
+  
+  if (formCount === 0) {
+    console.log('⏸️  无CRF表单数据，跳过注解生成');
+    return;
+  }
+  
+  // 3. 生成矩形数据
+  console.log('🔢 开始生成注解矩形数据...');
+  const { generateAnnotationRects } = require('../services/crf_analysis/annotationRectService');
+  const rectsByPage = generateAnnotationRects(studyData);
+  
+  const totalRects = Object.values(rectsByPage).reduce((sum, rects) => sum + rects.length, 0);
+  console.log('📊 生成矩形统计:', {
+    totalPages: Object.keys(rectsByPage).length,
+    totalRects: totalRects
+  });
+  
+  if (totalRects === 0) {
+    console.log('⏸️  无注解矩形数据，跳过PDF生成');
+    return;
+  }
+  
+  // 4. 生成输出PDF路径
+  const outputPath = generateAnnotatedPdfPath(sourcePath);
+  console.log('📁 注解PDF输出路径:', outputPath);
+  
+  // 5. 调用Python脚本生成注解PDF
+  console.log('🐍 开始调用Python脚本生成注解PDF...');
+  const annotationResult = await callPdfAnnotationScript(sourcePath, rectsByPage, outputPath);
+  
+  console.log('✅ 注解PDF生成成功:', annotationResult);
+  
+  // 6. 更新数据库
+  console.log('💾 更新数据库注解字段...');
+  
+  // 🔥 生成下载链接
+  const downloadUrl = `/api/studies/${studyId}/crf-annotated.pdf`;
+  console.log('🔗 生成下载链接:', downloadUrl);
+  
+  await Study.findByIdAndUpdate(
+    studyId,
+    {
+      $set: {
+        'files.crf.annotatedPath': outputPath,
+        'files.crf.annotationReady': true,
+        'files.crf.annotatedAt': new Date(),
+        'files.crf.downloadUrl': downloadUrl  // 🔥 新增：保存下载链接
+      }
+    }
+  );
+  
+  console.log('🎉 CRF注解PDF生成完整流程完成!');
+  return {
+    success: true,
+    annotatedPath: outputPath,
+    annotationStats: annotationResult
+  };
+}
+
+// 🔥 **新增**: 获取CRF注解状态
+async function getCrfAnnotationStatus(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    // console.log('📋 获取CRF注解状态...');
+    // console.log('📋 Study ID:', studyId);
+    
+    // 查找Study文档
+    const study = await Study.findById(studyId);
+    if (!study) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+    
+    // 提取CRF注解相关信息
+    const crfData = study?.files?.crf;
+    const annotationStatus = {
+      hasUpload: !!crfData?.uploaded,
+      hasCrfData: !!(crfData?.crfUploadResult?.crfFormList && Object.keys(crfData.crfUploadResult.crfFormList).length > 0),
+      annotationReady: !!crfData?.annotationReady,
+      downloadUrl: crfData?.downloadUrl || null,
+      annotatedAt: crfData?.annotatedAt || null,
+      originalName: crfData?.originalName || null
+    };
+    
+    // console.log('📊 CRF注解状态:', annotationStatus);
+    
+    res.json({
+      success: true,
+      data: {
+        studyId: studyId,
+        annotationStatus: annotationStatus
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 获取CRF注解状态失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get CRF annotation status',
+      error: error.message
+    });
+  }
+}
+
+// 🔥 **新增**: 检查是否有现成的SDTM映射数据
+async function checkExistingSdtmData(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    // console.log('🔍 开始检查Study的现成SDTM数据...');
+    // console.log('📋 Study ID:', studyId);
+    
+    if (!studyId) {
+      console.warn('❌ 缺少studyId参数');
+      return res.status(400).json({
+        success: false,
+        message: 'Study ID is required'
+      });
+    }
+    
+    const study = await Study.findById(studyId)
+      .select('files.crf.crfUploadResult.crfFormList') // 只选择必要字段
+      .lean();
+    
+    if (!study) {
+      console.warn('❌ Study未找到:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+    
+    const crfFormList = study?.files?.crf?.crfUploadResult?.crfFormList;
+    const hasExistingData = checkIfHasExistingSdtmData(crfFormList);
+    
+    // console.log('📊 SDTM数据检查结果:', {
+    //   studyId: studyId,
+    //   totalForms: crfFormList ? Object.keys(crfFormList).length : 0,
+    //   hasExistingData: hasExistingData
+    // });
+    
+    res.json({
+      success: true,
+      hasExistingData: hasExistingData,
+      message: hasExistingData ? 'Existing SDTM data found' : 'No existing SDTM data'
+    });
+    
+  } catch (error) {
+    console.error('❌ 检查现成SDTM数据失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check existing SDTM data',
+      error: error.message
+    });
+  }
+}
+
+// 🔥 **新增**: 仅重新绘制PDF（跳过GPT步骤）
+async function redrawCrfAnnotationPdf(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    // console.log('🎨 开始Re-draw PDF流程...');
+    // console.log('📋 Study ID:', studyId);
+    
+    if (!studyId) {
+      console.warn('❌ 缺少studyId参数');
+      return res.status(400).json({
+        success: false,
+        message: '缺少studyId参数'
+      });
+    }
+
+    // 获取Study数据
+    const study = await Study.findById(studyId);
+    if (!study) {
+      console.warn('❌ Study未找到:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    // 检查是否有CRF数据
+    if (!study.files?.crf?.crfUploadResult) {
+      console.warn('❌ Study没有CRF数据:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'No CRF data found for this study'
+      });
+    }
+
+    console.log('🔍 检查现成的SDTM映射数据...');
+    
+    // 检查是否有现成的SDTM数据
+    const crfFormList = study.files.crf.crfUploadResult.crfFormList;
+    const hasExistingData = checkIfHasExistingSdtmData(crfFormList);
+    
+    if (!hasExistingData) {
+      console.warn('❌ 没有找到现成的SDTM数据，无法Re-draw');
+      return res.status(400).json({
+        success: false,
+        message: 'No existing SDTM mapping data found. Please run full annotation first.',
+        code: 'NO_EXISTING_DATA'
+      });
+    }
+    
+    console.log('✅ 找到现成的SDTM数据，开始Re-draw PDF...');
+    console.log('🚀 跳过GPT分析步骤，直接进行PDF绘制');
+    
+    // 直接调用分批PDF绘制（跳过GPT步骤）
+    const batchResult = await annotatePdfInBatches(study, studyId, { 
+      batchSize: 5, 
+      batchTimeoutMs: 5 * 60 * 1000 
+    });
+    
+    console.log('🎉 Re-draw PDF完成!');
+    // console.log('📊 绘制结果:', {
+    //   totalForms: batchResult.totalForms,
+    //   processedForms: batchResult.processedForms,
+    //   succeededBatches: batchResult.succeededBatches,
+    //   failedBatches: batchResult.failedBatches
+    // });
+
+    res.json({
+      success: true,
+      message: 'PDF re-drawn successfully (skipped GPT analysis)',
+      data: {
+        ...batchResult,
+        skippedGptAnalysis: true,
+        costSaved: true
+      }
+    });
+
+  } catch (error) {
+    console.error('❌ Re-draw PDF失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to re-draw PDF',
+      error: error.message
+    });
+  }
+}
+
+// 🔥 **辅助函数**: 检查是否有现成的SDTM数据
+function checkIfHasExistingSdtmData(crfFormList) {
+  if (!crfFormList || typeof crfFormList !== 'object') {
+    console.log('📊 SDTM数据检查: crfFormList无效或为空');
+    return false;
+  }
+  
+  const formKeys = Object.keys(crfFormList);
+  console.log(`📊 SDTM数据检查: 检查${formKeys.length}个Forms`);
+  
+  let formsWithData = 0;
+  let totalForms = 0;
+  
+  const hasData = Object.values(crfFormList).some(form => {
+    totalForms++;
+    const hasUniqueData = Array.isArray(form.form_sdtm_mapping_unique) && form.form_sdtm_mapping_unique.length > 0;
+    const hasMappingData = Array.isArray(form.Mapping) && form.Mapping.some(mapping => 
+      Array.isArray(mapping.sdtm_mappings) && mapping.sdtm_mappings.length > 0
+    );
+    
+    if (hasUniqueData || hasMappingData) {
+      formsWithData++;
+      console.log(`  ✅ Form "${form.title || 'Unknown'}" 有SDTM数据`);
+      return true;
+    } else {
+      console.log(`  ❌ Form "${form.title || 'Unknown'}" 缺少SDTM数据`);
+      return false;
+    }
+  });
+  
+  // console.log(`📊 SDTM数据检查结果: ${formsWithData}/${totalForms} Forms有数据，总体判断: ${hasData ? '有数据' : '无数据'}`);
+  
+  return hasData;
+}
+
+// 🔥 **新增**: 下载注解CRF PDF
+async function downloadAnnotatedCrf(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    console.log('📥 开始下载注解CRF PDF...');
+    // console.log('📋 Study ID:', studyId);
+    
+    // 验证Study ID格式
+    if (!studyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Study ID is required'
+      });
+    }
+    
+    // 查找Study文档
+    const study = await Study.findById(studyId);
+    if (!study) {
+      console.warn('❌ Study not found:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+    
+    // 检查是否有CRF注解数据
+    const annotatedPath = study?.files?.crf?.annotatedPath;
+    const annotationReady = study?.files?.crf?.annotationReady;
+    
+    if (!annotationReady) {
+      console.warn('❌ CRF注解未准备就绪:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'CRF annotation is not ready. Please generate annotation first.'
+      });
+    }
+    
+    if (!annotatedPath) {
+      console.warn('❌ 注解PDF路径不存在:', studyId);
+      return res.status(404).json({
+        success: false,
+        message: 'Annotated PDF path not found'
+      });
+    }
+    
+    console.log('📁 注解PDF路径:', annotatedPath);
+    
+    // 检查文件是否存在
+    const fs = require('fs');
+    const path = require('path');
+    
+    if (!fs.existsSync(annotatedPath)) {
+      console.warn('❌ 注解PDF文件不存在:', annotatedPath);
+      return res.status(404).json({
+        success: false,
+        message: 'Annotated PDF file not found on server'
+      });
+    }
+    
+    // 获取文件统计信息
+    const stats = fs.statSync(annotatedPath);
+    const fileName = path.basename(annotatedPath);
+    
+    console.log('📊 文件信息:', {
+      path: annotatedPath,
+      size: stats.size,
+      fileName: fileName
+    });
+    
+    // 设置响应头
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('Content-Length', stats.size);
+    // 🔧 **修复**: 允许前端访问Content-Disposition头部
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length');
+    
+    console.log('📤 开始发送PDF文件...');
+    
+    // 发送文件
+    res.sendFile(path.resolve(annotatedPath), (err) => {
+      if (err) {
+        console.error('❌ 发送文件失败:', err);
+        if (!res.headersSent) {
+          res.status(500).json({
+            success: false,
+            message: 'Failed to send annotated PDF file',
+            error: err.message
+          });
+        }
+      } else {
+        console.log('✅ 注解PDF发送成功:', fileName);
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ 下载注解CRF PDF失败:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to download annotated CRF PDF',
+      error: error.message
+    });
+  }
+}
+
 module.exports = {
   uploadDocument,
   getDocuments,
@@ -1912,6 +2697,11 @@ module.exports = {
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
   uploadSapFile,     // 🔥 新增：专门的SAP上传函数
   getCrfData,        // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
+  generateCrfAnnotationRects,        // 🔥 新增：生成CRF注解矩形参数
+  getCrfAnnotationStatus,           // 🔥 新增：获取CRF注解状态
+  downloadAnnotatedCrf,              // 🔥 新增：下载注解CRF PDF
+  checkExistingSdtmData,            // 🔥 新增：检查现成SDTM数据
+  redrawCrfAnnotationPdf,           // 🔥 新增：仅重绘PDF（跳过GPT）
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
   saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
 }; 

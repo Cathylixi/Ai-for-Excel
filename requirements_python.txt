@@ -1,5 +1,6 @@
 # Python dependencies for PDF processing
-# pypdf==4.0.1  # Replaced by pdfplumber for better text extraction
+pypdf>=3.0.0  # For PDF annotation generation
+# pdfplumber is used for text extraction, pypdf for annotation
 
 # Enhanced PDF processing with table extraction support
 pdfplumber==0.11.7
