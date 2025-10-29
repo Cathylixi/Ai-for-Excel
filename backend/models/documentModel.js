@@ -177,6 +177,8 @@ const DocumentSchema = new mongoose.Schema({
 });
 
 // 指定自定义集合名称为 'clinicalprotocol'
-const Document = mongoose.model('Document', DocumentSchema, 'clinicalprotocol');
+// 🔥 已弃用：现在使用 studyModel.js 来存储所有文档数据
+// const Document = mongoose.model('Document', DocumentSchema, 'clinicalprotocol');
 
-module.exports = Document; 
+// module.exports = Document;
+module.exports = null; // 导出 null 以避免引用错误 

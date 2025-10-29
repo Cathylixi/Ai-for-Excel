@@ -211,49 +211,70 @@ function extractSectionsFromHTML($) {
   return sections;
 }
 
+/**
+ * 🔥 辅助函数：解析编号字符串为路径数组
+ * @param {string} numberStr - 编号字符串，如 "5.2.1"
+ * @returns {Array<number>} 路径数组，如 [5, 2, 1]
+ */
+function parseNumberPath(numberStr) {
+  return numberStr.split('.').map(n => parseInt(n, 10));
+}
+
+/**
+ * 🔥 辅助函数：检查新编号是否是合法的下一个编号（符合继承约束）
+ * @param {Array<number>} currentPath - 当前路径，如 [5, 2]
+ * @param {Array<number>} newPath - 新候选路径，如 [5, 3]
+ * @returns {boolean} 是否合法
+ */
+function isValidNextNumber(currentPath, newPath) {
+  const m = newPath.length;     // 新路径深度
+  const n = currentPath.length; // 当前路径深度
+  
+  // ========== 规则1：同级兄弟 (next sibling) ==========
+  if (m === n) {
+    for (let i = 0; i < n - 1; i++) {
+      if (newPath[i] !== currentPath[i]) {
+        return false;
+      }
+    }
+    return newPath[m - 1] === currentPath[n - 1] + 1;
+  }
+  
+  // ========== 规则2：首个子节点 (first child) ==========
+  if (m === n + 1) {
+    for (let i = 0; i < n; i++) {
+      if (newPath[i] !== currentPath[i]) {
+        return false;
+      }
+    }
+    return newPath[m - 1] === 1;
+  }
+  
+  // ========== 规则3：跳回祖先级 (ancestor sibling) ==========
+  if (m < n) {
+    for (let i = 0; i < m - 1; i++) {
+      if (newPath[i] !== currentPath[i]) {
+        return false;
+      }
+    }
+
+    const ancestorIndex = m - 1;
+    return newPath[ancestorIndex] === currentPath[ancestorIndex] + 1;
+  }
+  
+  return false;
+}
+
 // 第2层：编号模式识别
 function extractSectionsFromPatterns(extractedText) {
   const sections = [];
   const lines = extractedText.split('\n');
   
-  // 定义标题模式
-  const titlePatterns = [
-    {
-      pattern: /^(\d+)\s+([A-Z][A-Z\s]+[A-Z])$/,                    // "1 INTRODUCTION"
-      level: 1,
-      type: 'numbered-main'
-    },
-    {
-      pattern: /^(\d+\.\d+)\s+(.+)$/,                               // "1.1 Background"
-      level: 2,
-      type: 'numbered-sub'
-    },
-    {
-      pattern: /^(\d+\.\d+\.\d+)\s+(.+)$/,                          // "1.1.1 SPI-2012"
-      level: 3,
-      type: 'numbered-subsub'
-    },
-    {
-      pattern: /^(\d+\.\d+\.\d+\.\d+)\s+(.+)$/,                     // "1.1.3.1 Phase 1"
-      level: 4,
-      type: 'numbered-detail'
-    },
-    {
-      pattern: /^([A-Z][A-Z\s]{10,})$/,                             // "INVESTIGATOR SIGNATURE"
-      level: 1,
-      type: 'all-caps'
-    },
-    {
-      pattern: /^(Appendix\s+\d+)\s+(.+)$/i,                        // "Appendix 1 Schedule"
-      level: 1,
-      type: 'appendix'
-    },
-    {
-      pattern: /^(List\s+of\s+\w+)$/i,                              // "List of Tables"
-      level: 2,
-      type: 'list'
-    }
-  ];
+  // 🔥 新增：维护当前已接受的编号路径
+  let currentPath = null;
+  
+  const numericHeadingRegex = /^(\d+(?:\.\d+)*)(?:[.)])?\s+(.+?)(?:\.{2,}\s*(\d+))?$/;
+  const appendixHeadingRegex = /^(Appendix\s+[A-Z](?:\.\d+)*)(?:[.)])?\s+(.+?)(?:\.{2,}\s*(\d+))?$/i;
   
   let currentSection = null;
   
@@ -263,38 +284,68 @@ function extractSectionsFromPatterns(extractedText) {
     
     let matched = false;
     
-    for (const patternConfig of titlePatterns) {
-      const match = line.match(patternConfig.pattern);
+    let match = line.match(numericHeadingRegex);
+    let headingType = null;
+
+    if (match) {
+      headingType = 'numeric-heading';
+    } else {
+      match = line.match(appendixHeadingRegex);
       if (match) {
-        // 保存前一个章节
-        if (currentSection && currentSection.content.trim()) {
-          sections.push(currentSection);
-        }
-        
-        // 提取标题
-        let title = '';
-        if (patternConfig.type === 'numbered-main' || 
-            patternConfig.type === 'numbered-sub' || 
-            patternConfig.type === 'numbered-subsub' || 
-            patternConfig.type === 'numbered-detail') {
-          title = match[2].trim();
-        } else if (patternConfig.type === 'appendix') {
-          title = `${match[1]} ${match[2]}`.trim();
+        headingType = 'appendix-heading';
+      }
+    }
+
+    if (match) {
+      const numberPart = match[1];
+      const rawTitle = match[2] ? match[2].trim() : '';
+      const pagePart = match[3] ? parseInt(match[3], 10) : null;
+
+      const cleanTitle = rawTitle
+        .replace(/\.{3,}.*$/, '')
+        .replace(/\s+\d+\s*$/, '')
+        .trim();
+
+      if (cleanTitle.length > 2) {
+        let level = 1;
+        let newPath = null;
+        let isValidHeading = true;
+        const isNumericHeading = headingType === 'numeric-heading';
+
+        if (isNumericHeading) {
+          level = numberPart.split('.').length;
+          newPath = parseNumberPath(numberPart);
+
+          if (currentPath !== null && !isValidNextNumber(currentPath, newPath)) {
+            isValidHeading = false;
+          }
         } else {
-          title = match[1] || match[0];
+          const appendixId = numberPart.replace(/^Appendix\s+/i, '');
+          level = appendixId.split('.').length;
         }
-        
-        currentSection = {
-          title: title,
-          level: patternConfig.level,
-          content: '',
-          source: 'pattern',
-          patternType: patternConfig.type,
-          originalLine: line
-        };
-        
-        matched = true;
-        break;
+
+        if (isValidHeading) {
+          if (currentSection && currentSection.content.trim()) {
+            sections.push(currentSection);
+          }
+
+          currentSection = {
+            title: cleanTitle,
+            level,
+            content: '',
+            source: 'pattern',
+            patternType: headingType,
+            originalLine: line,
+            number: numberPart,
+            page: pagePart || null
+          };
+
+          if (isNumericHeading) {
+            currentPath = newPath;
+          }
+
+          matched = true;
+        }
       }
     }
     

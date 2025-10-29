@@ -57,6 +57,11 @@ html, body {
   padding: 20px;
 }
 
+.wizard-page[data-step="8"],
+.wizard-page[data-step="9"] {
+  padding: 0; /* CRF Annotation 和 Spec 页面需要全屏布局 */
+}
+
 /* ===== 步骤容器样式 ===== */
 .step-container {
   height: 100%;
@@ -236,6 +241,11 @@ html, body {
   .wizard-page[data-step="6"],
   .wizard-page[data-step="7"] {
     padding: 15px;
+  }
+  
+  .wizard-page[data-step="8"],
+  .wizard-page[data-step="9"] {
+    padding: 0; /* 保持全屏布局 */
   }
   
   .wizard-nav {

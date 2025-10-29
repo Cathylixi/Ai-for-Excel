@@ -1,0 +1,1319 @@
+{
+  "testSummary": {
+    "totalLabels": 63,
+    "totalOIDs": 0,
+    "processingTime": 1,
+    "testDate": "2025-09-23T22:23:12.423Z"
+  },
+  "boundaryTest": {
+    "LabelForm": [
+      {
+        "match_index": 1,
+        "content": {
+          "row_index": 1,
+          "full_text": "Boundary test spacing 1",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 100,
+          "y_max": 110,
+          "y_center": 105,
+          "height": 10,
+          "width": 400,
+          "word_count": 4,
+          "words": [
+            {
+              "text": "Boundary",
+              "x0": 100,
+              "x1": 164,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "test",
+              "x0": 120,
+              "x1": 152,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "spacing",
+              "x0": 140,
+              "x1": 196,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "1",
+              "x0": 160,
+              "x1": 168,
+              "y0": 100,
+              "y1": 110
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 1,
+                "full_text": "Boundary test spacing 1",
+                "y_center": 105
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Boundary test spacing 1",
+            "y_center": 105,
+            "x_min": 100,
+            "x_max": 196,
+            "y_min": 100,
+            "y_max": 110,
+            "width": 96
+          }
+        }
+      },
+      {
+        "match_index": 2,
+        "content": {
+          "row_index": 5,
+          "full_text": "X position test 2",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 200,
+          "y_max": 210,
+          "y_center": 205,
+          "height": 10,
+          "width": 400,
+          "word_count": 4,
+          "words": [
+            {
+              "text": "X",
+              "x0": 100,
+              "x1": 108,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "position",
+              "x0": 120,
+              "x1": 184,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "test",
+              "x0": 140,
+              "x1": 172,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "2",
+              "x0": 160,
+              "x1": 168,
+              "y0": 200,
+              "y1": 210
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 5,
+                "full_text": "X position test 2",
+                "y_center": 205
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "X position test 2",
+            "y_center": 205,
+            "x_min": 100,
+            "x_max": 184,
+            "y_min": 200,
+            "y_max": 210,
+            "width": 84
+          }
+        }
+      },
+      {
+        "match_index": 7,
+        "content": {
+          "row_index": 10,
+          "full_text": "Single digit continues here 7",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 300,
+          "y_max": 310,
+          "y_center": 305,
+          "height": 10,
+          "width": 400,
+          "word_count": 5,
+          "words": [
+            {
+              "text": "Single",
+              "x0": 100,
+              "x1": 148,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "digit",
+              "x0": 120,
+              "x1": 160,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "7",
+              "x0": 140,
+              "x1": 148,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "continues",
+              "x0": 105,
+              "x1": 177,
+              "y0": 315,
+              "y1": 325
+            },
+            {
+              "text": "here",
+              "x0": 125,
+              "x1": 157,
+              "y0": 315,
+              "y1": 325
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 2,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 10,
+                "full_text": "Single digit 7",
+                "y_center": 305
+              },
+              {
+                "row_index": 11,
+                "full_text": "continues here",
+                "y_center": 320
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Single digit 7 continues here",
+            "y_center": 312.5,
+            "x_min": 100,
+            "x_max": 177,
+            "y_min": 300,
+            "y_max": 325,
+            "width": 77
+          }
+        }
+      },
+      {
+        "match_index": 25,
+        "content": {
+          "row_index": 15,
+          "full_text": "Double digits also continues 25",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 400,
+          "y_max": 410,
+          "y_center": 405,
+          "height": 10,
+          "width": 400,
+          "word_count": 5,
+          "words": [
+            {
+              "text": "Double",
+              "x0": 100,
+              "x1": 148,
+              "y0": 400,
+              "y1": 410
+            },
+            {
+              "text": "digits",
+              "x0": 120,
+              "x1": 168,
+              "y0": 400,
+              "y1": 410
+            },
+            {
+              "text": "25",
+              "x0": 140,
+              "x1": 156,
+              "y0": 400,
+              "y1": 410
+            },
+            {
+              "text": "also",
+              "x0": 102,
+              "x1": 134,
+              "y0": 415,
+              "y1": 425
+            },
+            {
+              "text": "continues",
+              "x0": 122,
+              "x1": 194,
+              "y0": 415,
+              "y1": 425
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 2,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 15,
+                "full_text": "Double digits 25",
+                "y_center": 405
+              },
+              {
+                "row_index": 16,
+                "full_text": "also continues",
+                "y_center": 420
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Double digits 25 also continues",
+            "y_center": 412.5,
+            "x_min": 100,
+            "x_max": 194,
+            "y_min": 400,
+            "y_max": 425,
+            "width": 94
+          }
+        }
+      },
+      {
+        "match_index": 123,
+        "content": {
+          "row_index": 20,
+          "full_text": "Triple digits continues as well 123",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 500,
+          "y_max": 510,
+          "y_center": 505,
+          "height": 10,
+          "width": 400,
+          "word_count": 6,
+          "words": [
+            {
+              "text": "Triple",
+              "x0": 100,
+              "x1": 148,
+              "y0": 500,
+              "y1": 510
+            },
+            {
+              "text": "digits",
+              "x0": 120,
+              "x1": 168,
+              "y0": 500,
+              "y1": 510
+            },
+            {
+              "text": "123",
+              "x0": 140,
+              "x1": 164,
+              "y0": 500,
+              "y1": 510
+            },
+            {
+              "text": "continues",
+              "x0": 103,
+              "x1": 175,
+              "y0": 515,
+              "y1": 525
+            },
+            {
+              "text": "as",
+              "x0": 123,
+              "x1": 139,
+              "y0": 515,
+              "y1": 525
+            },
+            {
+              "text": "well",
+              "x0": 143,
+              "x1": 175,
+              "y0": 515,
+              "y1": 525
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 2,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 20,
+                "full_text": "Triple digits 123",
+                "y_center": 505
+              },
+              {
+                "row_index": 21,
+                "full_text": "continues as well",
+                "y_center": 520
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Triple digits 123 continues as well",
+            "y_center": 512.5,
+            "x_min": 100,
+            "x_max": 175,
+            "y_min": 500,
+            "y_max": 525,
+            "width": 75
+          }
+        }
+      },
+      {
+        "match_index": 3,
+        "content": {
+          "row_index": 25,
+          "full_text": "No merge test 3",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 600,
+          "y_max": 610,
+          "y_center": 605,
+          "height": 10,
+          "width": 400,
+          "word_count": 4,
+          "words": [
+            {
+              "text": "No",
+              "x0": 100,
+              "x1": 116,
+              "y0": 600,
+              "y1": 610
+            },
+            {
+              "text": "merge",
+              "x0": 120,
+              "x1": 160,
+              "y0": 600,
+              "y1": 610
+            },
+            {
+              "text": "test",
+              "x0": 140,
+              "x1": 172,
+              "y0": 600,
+              "y1": 610
+            },
+            {
+              "text": "3",
+              "x0": 160,
+              "x1": 168,
+              "y0": 600,
+              "y1": 610
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 25,
+                "full_text": "No merge test 3",
+                "y_center": 605
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "No merge test 3",
+            "y_center": 605,
+            "x_min": 100,
+            "x_max": 172,
+            "y_min": 600,
+            "y_max": 610,
+            "width": 72
+          }
+        }
+      },
+      {
+        "match_index": 4,
+        "content": {
+          "row_index": 30,
+          "full_text": "X offset test 4",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 700,
+          "y_max": 710,
+          "y_center": 705,
+          "height": 10,
+          "width": 400,
+          "word_count": 4,
+          "words": [
+            {
+              "text": "X",
+              "x0": 100,
+              "x1": 108,
+              "y0": 700,
+              "y1": 710
+            },
+            {
+              "text": "offset",
+              "x0": 120,
+              "x1": 168,
+              "y0": 700,
+              "y1": 710
+            },
+            {
+              "text": "test",
+              "x0": 140,
+              "x1": 172,
+              "y0": 700,
+              "y1": 710
+            },
+            {
+              "text": "4",
+              "x0": 160,
+              "x1": 168,
+              "y0": 700,
+              "y1": 710
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 30,
+                "full_text": "X offset test 4",
+                "y_center": 705
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "X offset test 4",
+            "y_center": 705,
+            "x_min": 100,
+            "x_max": 172,
+            "y_min": 700,
+            "y_max": 710,
+            "width": 72
+          }
+        }
+      }
+    ],
+    "OIDForm": []
+  },
+  "longMergeTest": {
+    "LabelForm": [
+      {
+        "match_index": 5,
+        "content": {
+          "row_index": 1,
+          "full_text": "Very long question that spans across multiple lines to test the merging functionality completely 5",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 100,
+          "y_max": 110,
+          "y_center": 105,
+          "height": 10,
+          "width": 400,
+          "word_count": 15,
+          "words": [
+            {
+              "text": "Very",
+              "x0": 100,
+              "x1": 132,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "long",
+              "x0": 120,
+              "x1": 152,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "question",
+              "x0": 140,
+              "x1": 204,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "5",
+              "x0": 160,
+              "x1": 168,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "that",
+              "x0": 105,
+              "x1": 137,
+              "y0": 115,
+              "y1": 125
+            },
+            {
+              "text": "spans",
+              "x0": 125,
+              "x1": 165,
+              "y0": 115,
+              "y1": 125
+            },
+            {
+              "text": "across",
+              "x0": 145,
+              "x1": 193,
+              "y0": 115,
+              "y1": 125
+            },
+            {
+              "text": "multiple",
+              "x0": 102,
+              "x1": 166,
+              "y0": 130,
+              "y1": 140
+            },
+            {
+              "text": "lines",
+              "x0": 122,
+              "x1": 162,
+              "y0": 130,
+              "y1": 140
+            },
+            {
+              "text": "to",
+              "x0": 142,
+              "x1": 158,
+              "y0": 130,
+              "y1": 140
+            },
+            {
+              "text": "test",
+              "x0": 104,
+              "x1": 136,
+              "y0": 145,
+              "y1": 155
+            },
+            {
+              "text": "the",
+              "x0": 124,
+              "x1": 148,
+              "y0": 145,
+              "y1": 155
+            },
+            {
+              "text": "merging",
+              "x0": 144,
+              "x1": 200,
+              "y0": 145,
+              "y1": 155
+            },
+            {
+              "text": "functionality",
+              "x0": 103,
+              "x1": 207,
+              "y0": 160,
+              "y1": 170
+            },
+            {
+              "text": "completely",
+              "x0": 123,
+              "x1": 203,
+              "y0": 160,
+              "y1": 170
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 5,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 1,
+                "full_text": "Very long question 5",
+                "y_center": 105
+              },
+              {
+                "row_index": 2,
+                "full_text": "that spans across",
+                "y_center": 120
+              },
+              {
+                "row_index": 3,
+                "full_text": "multiple lines to",
+                "y_center": 135
+              },
+              {
+                "row_index": 4,
+                "full_text": "test the merging",
+                "y_center": 150
+              },
+              {
+                "row_index": 5,
+                "full_text": "functionality completely",
+                "y_center": 165
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Very long question 5 that spans across multiple lines to test the merging functionality completely",
+            "y_center": 135,
+            "x_min": 100,
+            "x_max": 207,
+            "y_min": 100,
+            "y_max": 170,
+            "width": 107
+          }
+        }
+      },
+      {
+        "match_index": 6,
+        "content": {
+          "row_index": 10,
+          "full_text": "Extremely long question line number two line number three line number four line number five line number six final line seven 6",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 250,
+          "y_max": 260,
+          "y_center": 255,
+          "height": 10,
+          "width": 400,
+          "word_count": 22,
+          "words": [
+            {
+              "text": "Extremely",
+              "x0": 100,
+              "x1": 172,
+              "y0": 250,
+              "y1": 260
+            },
+            {
+              "text": "long",
+              "x0": 120,
+              "x1": 152,
+              "y0": 250,
+              "y1": 260
+            },
+            {
+              "text": "question",
+              "x0": 140,
+              "x1": 204,
+              "y0": 250,
+              "y1": 260
+            },
+            {
+              "text": "6",
+              "x0": 160,
+              "x1": 168,
+              "y0": 250,
+              "y1": 260
+            },
+            {
+              "text": "line",
+              "x0": 101,
+              "x1": 133,
+              "y0": 265,
+              "y1": 275
+            },
+            {
+              "text": "number",
+              "x0": 121,
+              "x1": 169,
+              "y0": 265,
+              "y1": 275
+            },
+            {
+              "text": "two",
+              "x0": 141,
+              "x1": 165,
+              "y0": 265,
+              "y1": 275
+            },
+            {
+              "text": "line",
+              "x0": 102,
+              "x1": 134,
+              "y0": 280,
+              "y1": 290
+            },
+            {
+              "text": "number",
+              "x0": 122,
+              "x1": 170,
+              "y0": 280,
+              "y1": 290
+            },
+            {
+              "text": "three",
+              "x0": 142,
+              "x1": 182,
+              "y0": 280,
+              "y1": 290
+            },
+            {
+              "text": "line",
+              "x0": 103,
+              "x1": 135,
+              "y0": 295,
+              "y1": 305
+            },
+            {
+              "text": "number",
+              "x0": 123,
+              "x1": 171,
+              "y0": 295,
+              "y1": 305
+            },
+            {
+              "text": "four",
+              "x0": 143,
+              "x1": 175,
+              "y0": 295,
+              "y1": 305
+            },
+            {
+              "text": "line",
+              "x0": 104,
+              "x1": 136,
+              "y0": 310,
+              "y1": 320
+            },
+            {
+              "text": "number",
+              "x0": 124,
+              "x1": 172,
+              "y0": 310,
+              "y1": 320
+            },
+            {
+              "text": "five",
+              "x0": 144,
+              "x1": 176,
+              "y0": 310,
+              "y1": 320
+            },
+            {
+              "text": "line",
+              "x0": 105,
+              "x1": 137,
+              "y0": 325,
+              "y1": 335
+            },
+            {
+              "text": "number",
+              "x0": 125,
+              "x1": 173,
+              "y0": 325,
+              "y1": 335
+            },
+            {
+              "text": "six",
+              "x0": 145,
+              "x1": 169,
+              "y0": 325,
+              "y1": 335
+            },
+            {
+              "text": "final",
+              "x0": 106,
+              "x1": 146,
+              "y0": 340,
+              "y1": 350
+            },
+            {
+              "text": "line",
+              "x0": 126,
+              "x1": 158,
+              "y0": 340,
+              "y1": 350
+            },
+            {
+              "text": "seven",
+              "x0": 146,
+              "x1": 186,
+              "y0": 340,
+              "y1": 350
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 7,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 10,
+                "full_text": "Extremely long question 6",
+                "y_center": 255
+              },
+              {
+                "row_index": 11,
+                "full_text": "line number two",
+                "y_center": 270
+              },
+              {
+                "row_index": 12,
+                "full_text": "line number three",
+                "y_center": 285
+              },
+              {
+                "row_index": 13,
+                "full_text": "line number four",
+                "y_center": 300
+              },
+              {
+                "row_index": 14,
+                "full_text": "line number five",
+                "y_center": 315
+              },
+              {
+                "row_index": 15,
+                "full_text": "line number six",
+                "y_center": 330
+              },
+              {
+                "row_index": 16,
+                "full_text": "final line seven",
+                "y_center": 345
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Extremely long question 6 line number two line number three line number four line number five line number six final line seven",
+            "y_center": 300,
+            "x_min": 100,
+            "x_max": 204,
+            "y_min": 250,
+            "y_max": 350,
+            "width": 104
+          }
+        }
+      }
+    ],
+    "OIDForm": []
+  },
+  "mixedScenarioTest": {
+    "LabelForm": [
+      {
+        "match_index": 1,
+        "content": {
+          "row_index": 1,
+          "full_text": "Patient info additional details 1 PTID 2 DOB Medical history 2 spanning two lines 3 MHTERM 1",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 100,
+          "y_max": 110,
+          "y_center": 105,
+          "height": 10,
+          "width": 400,
+          "word_count": 17,
+          "words": [
+            {
+              "text": "Patient",
+              "x0": 100,
+              "x1": 156,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "info",
+              "x0": 120,
+              "x1": 152,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "1",
+              "x0": 140,
+              "x1": 148,
+              "y0": 100,
+              "y1": 110
+            },
+            {
+              "text": "additional",
+              "x0": 105,
+              "x1": 185,
+              "y0": 115,
+              "y1": 125
+            },
+            {
+              "text": "details",
+              "x0": 125,
+              "x1": 181,
+              "y0": 115,
+              "y1": 125
+            },
+            {
+              "text": "1",
+              "x0": 100,
+              "x1": 108,
+              "y0": 150,
+              "y1": 160
+            },
+            {
+              "text": "PTID",
+              "x0": 120,
+              "x1": 152,
+              "y0": 150,
+              "y1": 160
+            },
+            {
+              "text": "2",
+              "x0": 100,
+              "x1": 108,
+              "y0": 170,
+              "y1": 180
+            },
+            {
+              "text": "DOB",
+              "x0": 120,
+              "x1": 144,
+              "y0": 170,
+              "y1": 180
+            },
+            {
+              "text": "Medical",
+              "x0": 100,
+              "x1": 156,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "history",
+              "x0": 120,
+              "x1": 176,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "2",
+              "x0": 140,
+              "x1": 148,
+              "y0": 200,
+              "y1": 210
+            },
+            {
+              "text": "spanning",
+              "x0": 103,
+              "x1": 167,
+              "y0": 215,
+              "y1": 225
+            },
+            {
+              "text": "two",
+              "x0": 123,
+              "x1": 147,
+              "y0": 215,
+              "y1": 225
+            },
+            {
+              "text": "lines",
+              "x0": 143,
+              "x1": 183,
+              "y0": 215,
+              "y1": 225
+            },
+            {
+              "text": "3",
+              "x0": 100,
+              "x1": 108,
+              "y0": 250,
+              "y1": 260
+            },
+            {
+              "text": "MHTERM",
+              "x0": 120,
+              "x1": 168,
+              "y0": 250,
+              "y1": 260
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 7,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 1,
+                "full_text": "Patient info 1",
+                "y_center": 105
+              },
+              {
+                "row_index": 2,
+                "full_text": "additional details",
+                "y_center": 120
+              },
+              {
+                "row_index": 3,
+                "full_text": "1 PTID",
+                "y_center": 155
+              },
+              {
+                "row_index": 4,
+                "full_text": "2 DOB",
+                "y_center": 175
+              },
+              {
+                "row_index": 5,
+                "full_text": "Medical history 2",
+                "y_center": 205
+              },
+              {
+                "row_index": 6,
+                "full_text": "spanning two lines",
+                "y_center": 220
+              },
+              {
+                "row_index": 7,
+                "full_text": "3 MHTERM",
+                "y_center": 255
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Patient info 1 additional details 1 PTID 2 DOB Medical history 2 spanning two lines 3 MHTERM",
+            "y_center": 180,
+            "x_min": 100,
+            "x_max": 185,
+            "y_min": 100,
+            "y_max": 260,
+            "width": 85
+          }
+        }
+      },
+      {
+        "match_index": 3,
+        "content": {
+          "row_index": 8,
+          "full_text": "Single line question 3",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 300,
+          "y_max": 310,
+          "y_center": 305,
+          "height": 10,
+          "width": 400,
+          "word_count": 4,
+          "words": [
+            {
+              "text": "Single",
+              "x0": 100,
+              "x1": 148,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "line",
+              "x0": 120,
+              "x1": 152,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "question",
+              "x0": 140,
+              "x1": 204,
+              "y0": 300,
+              "y1": 310
+            },
+            {
+              "text": "3",
+              "x0": 160,
+              "x1": 168,
+              "y0": 300,
+              "y1": 310
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 8,
+                "full_text": "Single line question 3",
+                "y_center": 305
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Single line question 3",
+            "y_center": 305,
+            "x_min": 100,
+            "x_max": 204,
+            "y_min": 300,
+            "y_max": 310,
+            "width": 104
+          }
+        }
+      },
+      {
+        "match_index": 4,
+        "content": {
+          "row_index": 9,
+          "full_text": "Isolated question 4",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 400,
+          "y_max": 410,
+          "y_center": 405,
+          "height": 10,
+          "width": 400,
+          "word_count": 3,
+          "words": [
+            {
+              "text": "Isolated",
+              "x0": 100,
+              "x1": 164,
+              "y0": 400,
+              "y1": 410
+            },
+            {
+              "text": "question",
+              "x0": 120,
+              "x1": 184,
+              "y0": 400,
+              "y1": 410
+            },
+            {
+              "text": "4",
+              "x0": 140,
+              "x1": 148,
+              "y0": 400,
+              "y1": 410
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 1,
+            "is_merged": false,
+            "original_rows": [
+              {
+                "row_index": 9,
+                "full_text": "Isolated question 4",
+                "y_center": 405
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Isolated question 4",
+            "y_center": 405,
+            "x_min": 100,
+            "x_max": 184,
+            "y_min": 400,
+            "y_max": 410,
+            "width": 84
+          }
+        }
+      }
+    ],
+    "OIDForm": []
+  },
+  "errorHandlingTest": {
+    "LabelForm": [
+      {
+        "match_index": 2,
+        "content": {
+          "row_index": 2,
+          "full_text": "Normal question continues normally Missing words array 3 2",
+          "x_min": 100,
+          "x_max": 500,
+          "y_min": 150,
+          "y_max": 160,
+          "y_center": 155,
+          "height": 10,
+          "width": 400,
+          "word_count": 9,
+          "words": [
+            {
+              "text": "Normal",
+              "x0": 100,
+              "x1": 148,
+              "y0": 150,
+              "y1": 160
+            },
+            {
+              "text": "question",
+              "x0": 120,
+              "x1": 184,
+              "y0": 150,
+              "y1": 160
+            },
+            {
+              "text": "2",
+              "x0": 140,
+              "x1": 148,
+              "y0": 150,
+              "y1": 160
+            },
+            {
+              "text": "continues",
+              "x0": 105,
+              "x1": 177,
+              "y0": 165,
+              "y1": 175
+            },
+            {
+              "text": "normally",
+              "x0": 125,
+              "x1": 189,
+              "y0": 165,
+              "y1": 175
+            }
+          ],
+          "page_number": 1,
+          "merged_rows_info": {
+            "total_rows": 3,
+            "is_merged": true,
+            "original_rows": [
+              {
+                "row_index": 2,
+                "full_text": "Normal question 2",
+                "y_center": 155
+              },
+              {
+                "row_index": 3,
+                "full_text": "continues normally",
+                "y_center": 170
+              },
+              {
+                "row_index": 4,
+                "full_text": "Missing words array 3",
+                "y_center": 205
+              }
+            ]
+          },
+          "full_text_without_number": {
+            "text": "Normal question 2 continues normally",
+            "y_center": 162.5,
+            "x_min": 100,
+            "x_max": 189,
+            "y_min": 150,
+            "y_max": 175,
+            "width": 89
+          }
+        }
+      }
+    ],
+    "OIDForm": []
+  },
+  "performanceTestSample": {
+    "inputSize": 161,
+    "outputLabels": 50,
+    "outputOIDs": 0,
+    "processingTime": 1
+  }
+}

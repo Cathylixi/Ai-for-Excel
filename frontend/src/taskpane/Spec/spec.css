@@ -1,0 +1,142 @@
+/* Spec Page Styles - 与CRF Annotation保持一致 */
+
+.spec-wrapper {
+  padding: 20px;
+  max-width: 100%;
+  margin: 0 auto;
+}
+
+.spec-wrapper h3 {
+  color: #323130;
+  margin-bottom: 24px;
+  text-align: center;
+  font-weight: 600;
+}
+
+/* 重用CRF annotation的样式类名以保持一致性 */
+.annotation-content {
+  background: #faf9f8;
+  border: 1px solid #edebe9;
+  border-radius: 8px;
+  margin: 20px 0;
+  min-height: 200px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.annotation-progress {
+  text-align: center;
+  max-width: 400px;
+}
+
+.annotation-progress h4 {
+  color: #323130;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.annotation-progress p {
+  line-height: 1.5;
+  margin: 16px 0;
+}
+
+.annotation-completed {
+  text-align: center;
+  max-width: 400px;
+}
+
+.annotation-completed h4 {
+  color: #323130;
+  margin: 16px 0;
+  font-weight: 600;
+}
+
+.annotation-completed p {
+  line-height: 1.5;
+  margin: 16px 0;
+}
+
+/* 进度条样式 - 与CRF annotation保持一致 */
+.progress-block {
+  text-align: left;
+}
+
+.progress-bar {
+  height: 10px;
+  background: #edebe9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+#spec-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: #107c10;
+  transition: width 0.3s ease;
+}
+
+/* Button Styles */
+#spec-finish-btn {
+  background-color: #0078d4;
+  border: 1px solid #0078d4;
+  color: #ffffff;
+  cursor: pointer;
+  font-family: 'Segoe UI', 'Segoe UI Web (West European)', 'Segoe UI', -apple-system, BlinkMacSystemFont, 'Roboto', 'Helvetica Neue', sans-serif;
+  font-weight: 600;
+  min-width: 80px;
+  outline: transparent;
+  padding: 8px 16px;
+  text-align: center;
+  text-decoration: none;
+  transition: background-color 0.1s ease;
+  user-select: none;
+  vertical-align: top;
+  border-radius: 2px;
+}
+
+#spec-finish-btn:hover {
+  background-color: #106ebe;
+  border-color: #106ebe;
+}
+
+#spec-finish-btn:active {
+  background-color: #005a9e;
+  border-color: #005a9e;
+}
+
+#spec-finish-btn:focus {
+  outline: 1px solid #605e5c;
+  outline-offset: 2px;
+}
+
+/* Status Banner */
+#spec-status-banner {
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  margin: 12px 0;
+}
+
+/* Responsive */
+@media (max-width: 480px) {
+  .spec-wrapper {
+    padding: 16px;
+  }
+  
+  .spec-content {
+    padding: 30px 15px;
+  }
+  
+  .spec-main {
+    max-width: 100%;
+  }
+  
+  .spec-main h4 {
+    font-size: 16px;
+  }
+  
+  .spec-main p {
+    font-size: 14px;
+  }
+}

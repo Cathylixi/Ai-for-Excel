@@ -849,6 +849,75 @@ class PypdfService {
   }
 
   /**
+   * 🔥 辅助函数：解析编号字符串为路径数组
+   * @param {string} numberStr - 编号字符串，如 "5.2.1"
+   * @returns {Array<number>} 路径数组，如 [5, 2, 1]
+   */
+  parseNumberPath(numberStr) {
+    return numberStr.split('.').map(n => parseInt(n, 10));
+  }
+
+  /**
+   * 🔥 辅助函数：检查新编号是否是合法的下一个编号（符合继承约束）
+   * @param {Array<number>} currentPath - 当前路径，如 [5, 2]
+   * @param {Array<number>} newPath - 新候选路径，如 [5, 3]
+   * @returns {boolean} 是否合法
+   */
+  isValidNextNumber(currentPath, newPath) {
+    const m = newPath.length;     // 新路径深度
+    const n = currentPath.length; // 当前路径深度
+    
+    // ========== 规则1：同级兄弟 (next sibling) ==========
+    // 示例：5.2 → 5.3
+    // 要求：深度相同，前缀相同，最后一段递增
+    if (m === n) {
+      // 检查前缀是否完全相同（除了最后一段）
+      for (let i = 0; i < n - 1; i++) {
+        if (newPath[i] !== currentPath[i]) {
+          return false; // 前缀不同，不合法
+        }
+      }
+      
+      // 检查最后一段是否递增（严格 +1，防止跳号）
+      return newPath[m - 1] === currentPath[n - 1] + 1;
+    }
+    
+    // ========== 规则2：首个子节点 (first child) ==========
+    // 示例：5.2 → 5.2.1
+    // 要求：深度+1，前缀完全相同，新段为1
+    if (m === n + 1) {
+      // 检查前缀是否完全相同
+      for (let i = 0; i < n; i++) {
+        if (newPath[i] !== currentPath[i]) {
+          return false;
+        }
+      }
+      
+      // 检查新最后一段是否为1
+      return newPath[m - 1] === 1;
+    }
+    
+    // ========== 规则3：跳回祖先级 (ancestor sibling) ==========
+    // 示例：5.2.3 → 5.3 或 5.2.3 → 6
+    // 要求：深度减少，回到某个祖先级并递增
+    if (m < n) {
+      // 前缀（除最后一段外）必须保持一致
+      for (let i = 0; i < m - 1; i++) {
+        if (newPath[i] !== currentPath[i]) {
+          return false;
+        }
+      }
+
+      const ancestorIndex = m - 1;
+      return newPath[ancestorIndex] === currentPath[ancestorIndex] + 1;
+    }
+    
+    // ========== 其他情况：不合法 ==========
+    // 例如：深度跳跃增加（5 → 5.2.1，跳过了 5.1）
+    return false;
+  }
+
+  /**
    * Find all numbered titles in the text with their positions and hierarchy levels
    * @param {string} text - PDF text content
    * @param {Array} tocInfo - Array of TOC position info to exclude
@@ -858,31 +927,12 @@ class PypdfService {
     const numberedTitles = [];
     const lines = text.split('\n');
     
-    // Define numbered title patterns with hierarchy levels
-    const titlePatterns = [
-      {
-        pattern: /^(\d+)\s*\.?\s+([A-Z][A-Z\s]+[A-Z]|[A-Z][a-zA-Z\s,]+)$/,    // "1. INTRODUCTION" or "1 INTRODUCTION"
-        level: 1,
-        type: 'numbered-main'
-      },
-      {
-        pattern: /^(\d+\.\d+)\s*\.?\s+(.+)$/,                                   // "1.1 Background" or "1.1. Background"
-        level: 2,
-        type: 'numbered-sub'
-      },
-      {
-        pattern: /^(\d+\.\d+\.\d+)\s*\.?\s+(.+)$/,                             // "1.1.1 Details"
-        level: 3,
-        type: 'numbered-subsub'
-      },
-      {
-        pattern: /^(\d+\.\d+\.\d+\.\d+)\s*\.?\s+(.+)$/,                        // "1.1.1.1 Specific"
-        level: 4,
-        type: 'numbered-detail'
-      }
-    ];
+    // 🔥 新增：维护当前已接受的编号路径
+    let currentPath = null;  // 初始为null，表示还没有接受任何标题
     
     let currentPosition = 0;
+    const numericHeadingRegex = /^(\d+(?:\.\d+)*)(?:[.)])?\s+(.+?)(?:\.{2,}\s*(\d+))?$/;
+    const appendixHeadingRegex = /^(Appendix\s+[A-Z](?:\.\d+)*)(?:[.)])?\s+(.+?)(?:\.{2,}\s*(\d+))?$/i;
     
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i].trim();
@@ -901,34 +951,67 @@ class PypdfService {
         continue;
       }
       
-      // Check each pattern
-      for (const patternConfig of titlePatterns) {
-        const match = line.match(patternConfig.pattern);
+      let match = line.match(numericHeadingRegex);
+      let headingType = null;
+
+      if (match) {
+        headingType = 'numeric-heading';
+      } else {
+        match = line.match(appendixHeadingRegex);
         if (match) {
-          const numberPart = match[1];
-          const titlePart = match[2].trim();
-          
-          // Clean up title (remove dots, extra spaces, page numbers)
-          const cleanTitle = titlePart
-            .replace(/\.{3,}.*$/, '')          // Remove trailing dots and page numbers
-            .replace(/\s+\d+\s*$/, '')         // Remove trailing page numbers
-            .trim();
-          
-          if (cleanTitle.length > 2) { // Only keep meaningful titles
-            numberedTitles.push({
-              number: numberPart,
-              title: cleanTitle,
-              level: patternConfig.level,
-              type: patternConfig.type,
-              lineIndex: i,
-              startPosition: lineStartPos,
-              originalLine: line
-            });
-            
-            // console.log(`🔢 Found real section L${patternConfig.level}: ${numberPart} ${cleanTitle} (line ${i})`);
-          }
-          break; // Found a match, no need to check other patterns
+          headingType = 'appendix-heading';
         }
+      }
+
+      if (!match) {
+        continue;
+      }
+
+      const numberPart = match[1];
+      const rawTitlePart = match[2] ? match[2].trim() : '';
+      const pagePart = match[3] ? parseInt(match[3], 10) : null;
+
+      const cleanTitle = rawTitlePart
+        .replace(/\.{3,}.*$/, '')
+        .replace(/\s+\d+\s*$/, '')
+        .trim();
+
+      if (cleanTitle.length <= 2) {
+        continue;
+      }
+
+      let level = 1;
+      let newPath = null;
+      const isNumericHeading = headingType === 'numeric-heading';
+
+      if (isNumericHeading) {
+        level = numberPart.split('.').length;
+        newPath = this.parseNumberPath(numberPart);
+
+        if (currentPath !== null) {
+          if (!this.isValidNextNumber(currentPath, newPath)) {
+            continue;
+          }
+        }
+      } else {
+        const appendixId = numberPart.replace(/^Appendix\s+/i, '');
+        const appendixSegments = appendixId.split('.');
+        level = appendixSegments.length;
+      }
+
+      numberedTitles.push({
+        number: numberPart,
+        title: cleanTitle,
+        level,
+        type: headingType,
+        page: pagePart || null,
+        lineIndex: i,
+        startPosition: lineStartPos,
+        originalLine: line
+      });
+
+      if (isNumericHeading) {
+        currentPath = newPath;
       }
     }
     
@@ -1181,7 +1264,8 @@ class PypdfService {
         source: "pattern",
         patternType: currentTitle.type,
         originalLine: currentTitle.originalLine,
-        number: currentTitle.number
+        number: currentTitle.number,
+        page: currentTitle.page || null
       };
       
       sections.push(section);

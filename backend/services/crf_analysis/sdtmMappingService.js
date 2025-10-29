@@ -301,10 +301,13 @@ function parseDomainLabel(domainLabel, variable) {
     }
     
     // 处理 SUPP 域情况：格式 "RACEOTH in SUPPDM"
-    if (variable && variable.includes(' in SUPP')) {
-      const parts = variable.split(' in ');
-      const qnam = parts[0];
-      const suppDomain = parts[1]; // SUPPDM
+    // 🔥 修復：檢查 domainLabel 而不是 variable
+    if (domainLabel && domainLabel.includes(' in SUPP')) {
+      const parts = domainLabel.split(' in ');
+      const qnam = parts[0]?.trim();
+      const suppDomain = parts[1]?.trim(); // SUPPDM
+      
+      console.log(`🔧 [GPT解析] SUPP域检测成功: "${domainLabel}" → QNAM="${qnam}", Domain="${suppDomain}"`);
       
       return {
         domain_code: suppDomain,

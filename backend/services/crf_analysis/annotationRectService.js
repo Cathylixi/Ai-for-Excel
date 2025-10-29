@@ -4,7 +4,56 @@
  * Author: LLX Solutions
  */
 
-const { ANNOT_GAP, ANNOT_BOX_W, ANNOT_PAD, ANNOT_MIN_WIDTH, ANNOT_MAX_WIDTH, ANNOT_TEXT_PADDING } = require('../../config/crfConfig');
+const { ANNOT_GAP, ANNOT_BOX_W, ANNOT_PAD } = require('../../config/crfConfig');
+
+// 🎨 全局颜色调色盘（统一使用）
+const GLOBAL_COLOR_PALETTE = [
+  [1.00, 0.745, 0.608], // 淡橙 FFBE9B
+  [0.588, 1.00, 0.588], // 淡绿 96FF96
+  [1.00, 1.00, 0.588],  // 淡黄 FFFF96
+  [0.749, 1.00, 1.00]   // 淡蓝 BFFFFF
+];
+
+/**
+ * 从修正数据中提取唯一的Form_Mapping列表
+ * @param {Array} correctedMappings - Mapping_corrected_CRF_Annotation_Checklist数组
+ * @returns {Array} 唯一的Form_Mapping字符串数组
+ */
+function extractUniqueFormMappingsFromCorrected(correctedMappings) {
+  if (!Array.isArray(correctedMappings) || correctedMappings.length === 0) {
+    return [];
+  }
+  
+  // 提取所有Form_Mapping并去重
+  const allMappings = correctedMappings
+    .map(item => item.Form_Mapping)
+    .filter(mapping => mapping && typeof mapping === 'string');
+    
+  // 去重并返回
+  return [...new Set(allMappings)];
+}
+
+/**
+ * 将Question_Variable字符串解析为变量数组
+ * @param {string} questionVariable - 格式如 "SITEID; USUBJID" 或 "SITEID"
+ * @returns {Array} 变量数组，如 ["SITEID", "USUBJID"]
+ */
+function parseQuestionVariable(questionVariable) {
+  if (!questionVariable || typeof questionVariable !== 'string') {
+    return [];
+  }
+  
+  // 处理 "null" 字符串
+  if (questionVariable.trim().toLowerCase() === 'null') {
+    return [];
+  }
+  
+  // 分割并清理
+  return questionVariable
+    .split(';')
+    .map(v => v.trim())
+    .filter(v => v.length > 0);
+}
 
 /**
  * 从Form对象中提取所有相关页面
@@ -54,10 +103,10 @@ function extractFormPages(form) {
 }
 
 /**
- * 从映射数据中提取所有variables用于annotation显示
- * @param {Object} mapping - Mapping对象，包含sdtm_mappings和sdtm_dataset_ai_result
- * @returns {Array} variable名称数组，用于生成多个annotation框
+ * 🚫 已废弃：从映射数据中提取所有variables用于annotation显示
+ * 现在使用 parseQuestionVariable() 从修正数据中提取
  */
+/*
 function extractVariablesFromMapping(mapping) {
   const { index, sdtm_dataset_ai_result, sdtm_mappings } = mapping;
   
@@ -101,6 +150,7 @@ function extractVariablesFromMapping(mapping) {
   // 最后回退到index
   return [String(index)];
 }
+*/
 
 /**
  * 生成单个Form域标注矩形参数（左上角位置）
@@ -133,8 +183,7 @@ function generateFormDomainRect(domain, pageNumber, domainIndex, formKey, pageDi
     const DOMAIN_MAX_WIDTH = 260; // 允许更长的域标签完全显示
     const dynamicWidth = calculateTextWidth(
       domain,
-      DOMAIN_FONT_SIZE,
-      { minWidth: ANNOT_MIN_WIDTH, maxWidth: DOMAIN_MAX_WIDTH, padding: ANNOT_TEXT_PADDING }
+      DOMAIN_FONT_SIZE
     );
     
     // 基础位置计算（第一个框）
@@ -146,8 +195,7 @@ function generateFormDomainRect(domain, pageNumber, domainIndex, formKey, pageDi
     for (let i = 0; i < domainIndex; i++) {
       const prevDomainWidth = calculateTextWidth(
         allDomains[i],
-        DOMAIN_FONT_SIZE,
-        { minWidth: ANNOT_MIN_WIDTH, maxWidth: DOMAIN_MAX_WIDTH, padding: ANNOT_TEXT_PADDING }
+        DOMAIN_FONT_SIZE
       );
       previousDomainsWidth += prevDomainWidth + DOMAIN_GAP;
     }
@@ -198,9 +246,6 @@ function generateFormDomainRect(domain, pageNumber, domainIndex, formKey, pageDi
  * @returns {number} 计算出的宽度（像素）
  */
 function calculateTextWidth(text, fontSize = 18, options = {}) {
-  const minWidth = options.minWidth !== undefined ? options.minWidth : ANNOT_MIN_WIDTH;
-  const maxWidth = options.maxWidth !== undefined ? options.maxWidth : ANNOT_MAX_WIDTH;
-  const padding = options.padding !== undefined ? options.padding : ANNOT_TEXT_PADDING;
   // Helvetica-Bold字体的字符宽度比例（相对于fontSize）
   const charWidthMap = {
     'A': 0.72, 'B': 0.67, 'C': 0.72, 'D': 0.72, 'E': 0.61, 'F': 0.56,
@@ -218,15 +263,12 @@ function calculateTextWidth(text, fontSize = 18, options = {}) {
   
   for (let i = 0; i < textStr.length; i++) {
     const char = textStr[i];
-    const charWidth = charWidthMap[char] || 0.6; // 默认宽度
+    const charWidth = charWidthMap[char] || 0.8; // 默认宽度
     totalWidth += charWidth * fontSize;
   }
   
-  // 添加文字左右边距
-  const widthWithPadding = totalWidth + padding;
-  
-  // 限制在最小/最大宽度范围内
-  const finalWidth = Math.max(minWidth, Math.min(maxWidth, widthWithPadding));
+  // 缩放文字宽度
+  const finalWidth = totalWidth * 0.65;
   
   // console.log(`📏 文字: "${text}" -> 计算宽度: ${totalWidth.toFixed(1)}px, 加边距: ${widthWithPadding.toFixed(1)}px, 最终: ${finalWidth.toFixed(1)}px`);
   
@@ -243,8 +285,12 @@ function calculateTextWidth(text, fontSize = 18, options = {}) {
 function generateFormDomainRects(form, formKey, pageDimensions) {
   const domainRects = [];
   
-  // 检查Form是否有域信息
-  const formDomains = form.form_sdtm_mapping_unique || [];
+  // 🆕 使用修正数据的form域字段
+  let formDomains = [];
+  if (form.Mapping_corrected_form_sdtm_mapping_unique && form.Mapping_corrected_form_sdtm_mapping_unique.length > 0) {
+    formDomains = form.Mapping_corrected_form_sdtm_mapping_unique;
+  }
+  
   if (formDomains.length === 0) {
     return domainRects; // 没有域信息，返回空数组
   }
@@ -258,17 +304,10 @@ function generateFormDomainRects(form, formKey, pageDimensions) {
   
   // console.log(`  📊 Form域信息: [${formDomains.join(', ')}] 在页面 [${formPages.join(', ')}]`);
 
-  // 🎨 颜色调色盘（循环使用，不更改布局，仅背景色）
-  const COLOR_PALETTE = [
-    [0.70, 0.80, 1.00], // 淡蓝
-    [1.00, 1.00, 0.70], // 淡黄
-    [0.80, 1.00, 0.80], // 淡绿
-    [1.00, 0.90, 0.80]  // 淡橙
-  ];
   // 为本Form内的每个唯一域分配颜色（按照出现顺序循环使用）
   const domainToColor = new Map();
   formDomains.forEach((domain, idx) => {
-    const color = COLOR_PALETTE[idx % COLOR_PALETTE.length];
+    const color = GLOBAL_COLOR_PALETTE[idx % GLOBAL_COLOR_PALETTE.length];
     domainToColor.set(domain, color);
   });
   
@@ -329,13 +368,7 @@ function generateAnnotationRects(studyData) {
 
   const allRectsByPage = {};
 
-  // 🎨 全局颜色循环控制：跨Form循环分配颜色，不在每个Form重置
-  const GLOBAL_COLOR_PALETTE = [
-    [0.70, 0.80, 1.00], // 淡蓝
-    [1.00, 1.00, 0.70], // 淡黄
-    [0.80, 1.00, 0.80], // 淡绿
-    [1.00, 0.90, 0.80]  // 淡橙
-  ];
+  // 🎨 使用全局颜色调色盘（避免重复定义）
   // 不为 NOT SUBMITTED 设背景色，由Python端省略填充
   const NOT_SUBMITTED_COLOR = null;
   const globalDomainToColor = new Map();
@@ -349,8 +382,8 @@ function generateAnnotationRects(studyData) {
     console.log(`🔍 正在处理Form: "${form.title}" (${form.Mapping?.length || 0}个映射)`);
 
   // 🆕 生成Form域标注（左上角）
-  // 在生成前确保为本Form涉及的每个域分配全局颜色（按出现顺序，循环使用4色）
-  const formDomains = Array.isArray(form.form_sdtm_mapping_unique) ? form.form_sdtm_mapping_unique : [];
+  // 使用修正数据的域列表进行颜色分配
+  const formDomains = Array.isArray(form.Mapping_corrected_form_sdtm_mapping_unique) ? form.Mapping_corrected_form_sdtm_mapping_unique : [];
   formDomains.forEach(domainStr => {
     if (!globalDomainToColor.has(domainStr)) {
       const color = GLOBAL_COLOR_PALETTE[globalColorIndex % GLOBAL_COLOR_PALETTE.length];
@@ -373,82 +406,86 @@ function generateAnnotationRects(studyData) {
   });
   formDomainRects.forEach(rect => addRectToPage(allRectsByPage, rect));
 
-    // 3. 遍历Form中的所有Mapping（问题标注）
-    if (!Array.isArray(form.Mapping)) continue;
-    // 变量着色时直接使用全局 domain->color 映射
-    form.Mapping.forEach(mapping => {
-      const { index, sdtm_dataset_ai_result, sdtm_mappings } = mapping;
-      if (typeof index !== 'number') return;
+    // 3. 🆕 只遍历修正后的Mapping数据
+    const correctedMappings = form.Mapping_corrected_CRF_Annotation_Checklist;
+    if (Array.isArray(correctedMappings) && correctedMappings.length > 0) {
+      // 使用修正后的数据
+      correctedMappings.forEach(correctedMapping => {
+        const questionNumber = correctedMapping.Question_Number;
+        const questionVariable = correctedMapping.Question_Variable;
+        
+        if (typeof questionNumber !== 'number') return;
 
-      // 🆕 提取所有variables用于生成多个annotation框
-      const variables = extractVariablesFromMapping(mapping);
+        // 🆕 从修正数据中提取variables
+        const variables = parseQuestionVariable(questionVariable);
       
-      console.log(`  📍 处理mapping index: ${index}, 提取到 ${variables.length} 个variables: [${variables.join(', ')}]`);
+        console.log(`  📍 处理corrected mapping Question_Number: ${questionNumber}, 提取到 ${variables.length} 个variables: [${variables.join(', ')}]`);
 
-      // 根据mapping解析其所属域字符串，用于着色
-      let mappingDomainString = null;
-      if (Array.isArray(sdtm_mappings) && sdtm_mappings.length > 0) {
-        const valid = sdtm_mappings.find(m => m && m.mapping_type !== 'not_submitted' && m.domain_code);
-        if (valid) {
-          const code = valid.domain_code || '';
-          const label = valid.domain_label || '';
-          mappingDomainString = label ? `${code} (${label})` : code;
+        // 🆕 从修正数据的Form_Mapping中提取域信息用于着色
+        const formMapping = correctedMapping.Form_Mapping || '';
+        let mappingDomainString = null;
+        
+        // 从Form_Mapping中提取第一个域作为着色依据
+        if (formMapping) {
+          const domains = formMapping.split(';').map(d => d.trim());
+          if (domains.length > 0) {
+            mappingDomainString = domains[0]; // 使用第一个域
+          }
         }
-      } else if (typeof sdtm_dataset_ai_result === 'string') {
-        const colon = sdtm_dataset_ai_result.indexOf(':');
-        if (colon > 0) mappingDomainString = sdtm_dataset_ai_result.slice(0, colon).trim();
-      }
-      // not submitted 单独灰色
-      const hasNotSubmitted = Array.isArray(sdtm_mappings) && sdtm_mappings.some(m => m && m.mapping_type === 'not_submitted');
-      let bgColor = undefined;
-      if (hasNotSubmitted || (typeof sdtm_dataset_ai_result === 'string' && sdtm_dataset_ai_result.includes('[NOT SUBMITTED]'))) {
-        bgColor = undefined; // 不设置背景色
-      } else if (mappingDomainString) {
-        // 若该域尚未在全局映射中，分配下一种颜色
-        if (!globalDomainToColor.has(mappingDomainString)) {
-          const color = GLOBAL_COLOR_PALETTE[globalColorIndex % GLOBAL_COLOR_PALETTE.length];
-          globalDomainToColor.set(mappingDomainString, color);
-          globalColorIndex++;
+        
+        // 处理NOT SUBMITTED情况
+        const hasNotSubmitted = questionVariable && questionVariable.toLowerCase().includes('null');
+        let bgColor = undefined;
+        if (hasNotSubmitted) {
+          bgColor = [0.95, 0.95, 0.95]; // 浅灰色背景
+        } else if (mappingDomainString) {
+          // 若该域尚未在全局映射中，分配下一种颜色
+          if (!globalDomainToColor.has(mappingDomainString)) {
+            const color = GLOBAL_COLOR_PALETTE[globalColorIndex % GLOBAL_COLOR_PALETTE.length];
+            globalDomainToColor.set(mappingDomainString, color);
+            globalColorIndex++;
+          }
+          bgColor = globalDomainToColor.get(mappingDomainString);
         }
-        bgColor = globalDomainToColor.get(mappingDomainString);
-      }
 
-      // 4. 为每个variable生成Label框
-      const labelItem = form.LabelForm?.find(item => item.match_index === index);
+        // 4. 为每个variable生成Label框
+        const labelItem = form.LabelForm?.find(item => item.match_index === questionNumber);
       if (labelItem && labelItem.content) {
-        variables.forEach((variable, variableIndex) => {
-          const labelRect = generateRectFromContent(
-            labelItem.content, 
-            variable,           // 显示variable名称
-            'Label', 
-            pageDimensions, 
-            index, 
-            formKey,
-            variableIndex       // 水平偏移索引
-          );
-          if (labelRect && bgColor) labelRect.background_color = bgColor;
+          variables.forEach((variable, variableIndex) => {
+            const labelRect = generateRectFromContent(
+              labelItem.content, 
+              variable,           // 显示variable名称
+              'Label', 
+              pageDimensions, 
+              questionNumber,     // 使用questionNumber
+              formKey,
+              variableIndex       // 水平偏移索引
+            );
+            if (labelRect && bgColor) labelRect.background_color = bgColor;
         if (labelRect) addRectToPage(allRectsByPage, labelRect);
-        });
+          });
       }
 
-      // 5. 为每个variable生成OID框
-      const oidItem = form.OIDForm?.find(item => item.match_index === index);
+        // 5. 为每个variable生成OID框
+        const oidItem = form.OIDForm?.find(item => item.match_index === questionNumber);
       if (oidItem && oidItem.content) {
-        variables.forEach((variable, variableIndex) => {
-          const oidRect = generateRectFromContent(
-            oidItem.content, 
-            variable,           // 显示variable名称
-            'OID', 
-            pageDimensions, 
-            index, 
-            formKey,
-            variableIndex       // 水平偏移索引
-          );
-          if (oidRect && bgColor) oidRect.background_color = bgColor;
+          variables.forEach((variable, variableIndex) => {
+            const oidRect = generateRectFromContent(
+              oidItem.content, 
+              variable,           // 显示variable名称
+              'OID', 
+              pageDimensions, 
+              questionNumber,     // 使用questionNumber
+              formKey,
+              variableIndex       // 水平偏移索引
+            );
+            if (oidRect && bgColor) oidRect.background_color = bgColor;
         if (oidRect) addRectToPage(allRectsByPage, oidRect);
-        });
+          });
       }
     });
+    }
+    // 🚫 删除fallback逻辑 - 如果没有修正数据就不生成annotation
   }
 
   console.log('🎉 标注矩形参数生成完成');
@@ -472,10 +509,21 @@ function generateRectFromContent(content, displayText, type, pageDimensions, ind
     // 🔧 计算动态宽度
     const dynamicWidth = calculateTextWidth(displayText);
     
-    // 提取坐标信息
-    const x_max = content.x_max;
-    const y_center = content.y_center || ((content.y_min + content.y_max) / 2);
+    // 🆕 优先使用排除数字后的坐标信息
+    let x_max, y_center, x_min;
     const page_number = content.page_number;
+    
+    if (content.full_text_without_number && content.full_text_without_number.x_max) {
+      // 使用排除数字后的坐标
+      x_max = content.full_text_without_number.x_max;
+      y_center = content.full_text_without_number.y_center;
+      x_min = content.full_text_without_number.x_min;
+    } else {
+      // 回退到原始坐标
+      x_max = content.x_max;
+      y_center = content.y_center || ((content.y_min + content.y_max) / 2);
+      x_min = content.x_min;
+    }
 
     if (typeof x_max !== 'number' || typeof y_center !== 'number' || typeof page_number !== 'number') {
       console.warn(`⚠️ ${type} index ${index}(显示文本:"${displayText}"): 坐标信息不完整`, { x_max, y_center, page_number });
@@ -497,8 +545,8 @@ function generateRectFromContent(content, displayText, type, pageDimensions, ind
       baseAnnotX = x_max + ANNOT_GAP;
     } else if (type === 'OID') {
       // OID: 在行的左侧添加注解框
-      const x_min = content.x_min || x_max - 100; // 如果没有x_min，用估算值
-      baseAnnotX = x_min - ANNOT_GAP - dynamicWidth; // 🔧 使用动态宽度
+      const x_min_final = x_min || x_max - 100; // 使用新坐标或估算值
+      baseAnnotX = x_min_final - ANNOT_GAP - dynamicWidth; // 🔧 使用动态宽度
     } else {
       console.warn(`⚠️ 未知的类型: ${type}, index ${index}(显示文本:"${displayText}")`);
       return null;
@@ -599,13 +647,7 @@ module.exports = {
 
     const allRectsByPage = {};
 
-    // 全局颜色循环控制（跨批次传递）
-    const GLOBAL_COLOR_PALETTE = [
-      [0.70, 0.80, 1.00],
-      [1.00, 1.00, 0.70],
-      [0.80, 1.00, 0.80],
-      [1.00, 0.90, 0.80]
-    ];
+    // 全局颜色循环控制（跨批次传递）使用模块级定义的GLOBAL_COLOR_PALETTE
     const NOT_SUBMITTED_COLOR = [0.98, 0.98, 0.98];
     const globalDomainToColor = (colorState && colorState.map) ? colorState.map : new Map();
     let globalColorIndex = (colorState && typeof colorState.index === 'number') ? colorState.index : 0;
@@ -621,8 +663,8 @@ module.exports = {
 
       // console.log(`🔍 [Batch] 处理Form: "${form.title}" (${form.Mapping?.length || 0}个映射)`);
 
-      // 为本Form涉及的域分配（或复用）全局颜色
-      const formDomains = Array.isArray(form.form_sdtm_mapping_unique) ? form.form_sdtm_mapping_unique : [];
+      // 🆕 为本Form涉及的域分配（或复用）全局颜色 - 使用修正数据
+      const formDomains = Array.isArray(form.Mapping_corrected_form_sdtm_mapping_unique) ? form.Mapping_corrected_form_sdtm_mapping_unique : [];
       formDomains.forEach(domainStr => {
         if (!globalDomainToColor.has(domainStr)) {
           const color = GLOBAL_COLOR_PALETTE[globalColorIndex % GLOBAL_COLOR_PALETTE.length];
@@ -640,32 +682,36 @@ module.exports = {
       });
       formDomainRects.forEach(rect => addRectToPage(allRectsByPage, rect));
 
-      // 问题标注
-      if (!Array.isArray(form.Mapping)) return;
-      form.Mapping.forEach(mapping => {
-        const { index, sdtm_dataset_ai_result, sdtm_mappings } = mapping;
-        if (typeof index !== 'number') return;
+      // 🆕 问题标注：只使用修正数据
+      const correctedMappings = form.Mapping_corrected_CRF_Annotation_Checklist;
+      if (!Array.isArray(correctedMappings) || correctedMappings.length === 0) return;
+      
+      correctedMappings.forEach(correctedMapping => {
+        const questionNumber = correctedMapping.Question_Number;
+        const questionVariable = correctedMapping.Question_Variable;
+        if (typeof questionNumber !== 'number') return;
 
-        const variables = extractVariablesFromMapping(mapping);
+        const variables = parseQuestionVariable(questionVariable);
 
-        // 根据mapping解析域字符串，用于着色
+        // 🆕 从修正数据的Form_Mapping中提取域信息用于着色
+        const formMapping = correctedMapping.Form_Mapping || '';
         let mappingDomainString = null;
-        if (Array.isArray(sdtm_mappings) && sdtm_mappings.length > 0) {
-          const valid = sdtm_mappings.find(m => m && m.mapping_type !== 'not_submitted' && m.domain_code);
-          if (valid) {
-            const code = valid.domain_code || '';
-            const label = valid.domain_label || '';
-            mappingDomainString = label ? `${code} (${label})` : code;
+        
+        // 从Form_Mapping中提取第一个域作为着色依据
+        if (formMapping) {
+          const domains = formMapping.split(';').map(d => d.trim());
+          if (domains.length > 0) {
+            mappingDomainString = domains[0]; // 使用第一个域
           }
-        } else if (typeof sdtm_dataset_ai_result === 'string') {
-          const colon = sdtm_dataset_ai_result.indexOf(':');
-          if (colon > 0) mappingDomainString = sdtm_dataset_ai_result.slice(0, colon).trim();
         }
-        const hasNotSubmitted = Array.isArray(sdtm_mappings) && sdtm_mappings.some(m => m && m.mapping_type === 'not_submitted');
+        
+        // 处理NOT SUBMITTED情况
+        const hasNotSubmitted = questionVariable && questionVariable.toLowerCase().includes('null');
         let bgColor = undefined;
-        if (hasNotSubmitted || (typeof sdtm_dataset_ai_result === 'string' && sdtm_dataset_ai_result.includes('[NOT SUBMITTED]'))) {
-          bgColor = undefined; // 不设置背景色
+        if (hasNotSubmitted) {
+          bgColor = [0.95, 0.95, 0.95]; // 浅灰色背景
         } else if (mappingDomainString) {
+          // 若该域尚未在全局映射中，分配下一种颜色
           if (!globalDomainToColor.has(mappingDomainString)) {
             const color = GLOBAL_COLOR_PALETTE[globalColorIndex % GLOBAL_COLOR_PALETTE.length];
             globalDomainToColor.set(mappingDomainString, color);
@@ -675,18 +721,18 @@ module.exports = {
         }
 
         // Label & OID 框
-        const labelItem = form.LabelForm?.find(item => item.match_index === index);
+        const labelItem = form.LabelForm?.find(item => item.match_index === questionNumber);
         if (labelItem && labelItem.content) {
           variables.forEach((variable, variableIndex) => {
-            const labelRect = generateRectFromContent(labelItem.content, variable, 'Label', pageDimensions, index, formKey, variableIndex);
+            const labelRect = generateRectFromContent(labelItem.content, variable, 'Label', pageDimensions, questionNumber, formKey, variableIndex);
             if (labelRect && bgColor) labelRect.background_color = bgColor;
             if (labelRect) addRectToPage(allRectsByPage, labelRect);
           });
         }
-        const oidItem = form.OIDForm?.find(item => item.match_index === index);
+        const oidItem = form.OIDForm?.find(item => item.match_index === questionNumber);
         if (oidItem && oidItem.content) {
           variables.forEach((variable, variableIndex) => {
-            const oidRect = generateRectFromContent(oidItem.content, variable, 'OID', pageDimensions, index, formKey, variableIndex);
+            const oidRect = generateRectFromContent(oidItem.content, variable, 'OID', pageDimensions, questionNumber, formKey, variableIndex);
             if (oidRect && bgColor) oidRect.background_color = bgColor;
             if (oidRect) addRectToPage(allRectsByPage, oidRect);
           });

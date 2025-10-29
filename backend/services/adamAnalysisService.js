@@ -98,7 +98,7 @@ Please return JSON format, ensuring the mappings array contains exactly ${sdtmDo
     },
     "mediumComplexityAdam": {
       "count": "中等复杂度 ADaM 域数量 (去重, 与 High 不重叠)",
-      "domains": ["中等复杂度 ADaM 域列表"]
+      "domains": ["中等复杂度 ADaM 域列你在我們表"]
     }
   }
 }`;

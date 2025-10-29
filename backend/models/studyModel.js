@@ -60,7 +60,41 @@ const FileSlotSchema = new mongoose.Schema({
       level: { type: Number },
       sectionIndex: { type: Number },
       extractMethod: { type: String, enum: ['ai', 'rule'], default: 'ai' }
-    }]
+    }],
+    
+    // 🔥 新增：Inclusion/Exclusion Criteria 及其他 Criteria 抽取结果
+    criterias: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+      // 示例结构: 
+      // {
+      //   inclusion_criteria: [{ title, level, content, sectionIndex, originalTitle }],
+      //   exclusion_criteria: [{ title, level, content, sectionIndex, originalTitle }],
+      //   ...其他criteria类型
+      // }
+    },
+    
+    // 🔥 新增：Study Design 章节及其所有子章节抽取结果
+    studyDesign: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+      // 示例结构: 
+      // {
+      //   title: "STUDY DESIGN",
+      //   level: 1,
+      //   sectionIndex: 5,
+      //   content: "This is a Phase III study...",
+      //   number: "3",
+      //   source: "pattern",
+      //   children: [
+      //     { title: "Study Design Overview", level: 2, sectionIndex: 6, content: "...", number: "3.1" },
+      //     { title: "Study Population", level: 2, sectionIndex: 7, content: "...", number: "3.2" },
+      //     { title: "Inclusion Criteria", level: 3, sectionIndex: 8, content: "...", number: "3.2.1" },
+      //     ...
+      //   ]
+      // }
+      // 如果文档中有多个Study Design块，则存为：{ blocks: [...] }
+    }
   }
 }, { _id: false });
 
@@ -77,6 +111,8 @@ const CrfFileSlotSchema = new mongoose.Schema({
   annotationReady: { type: Boolean, default: false },
   annotatedAt: { type: Date },
   downloadUrl: { type: String },  // 🔥 新增：注解PDF下载链接
+  // 🔥 新增：SDTM分析完成状态（GPT分析完成后设置为true）
+  crf_sdtm_ready_for_annotation: { type: Boolean, default: false },
   crfUploadResult: {
     crfFormList: { type: mongoose.Schema.Types.Mixed, default: {} },
     crfFormName: { type: mongoose.Schema.Types.Mixed, default: {} },
@@ -178,6 +214,7 @@ const StudySchema = new mongoose.Schema({
     sap: { type: FileSlotSchema, default: {} }
   },
 
+
   projectDone: {
     isCostEstimate: { type: Boolean, default: null },
     isSasAnalysis: { type: Boolean, default: null }
@@ -185,6 +222,240 @@ const StudySchema = new mongoose.Schema({
 
   CostEstimateDetails: { type: CostEstimateDetailsSchema, default: {} },
   SasAnalysisDetails: { type: mongoose.Schema.Types.Mixed, default: {} },
+
+  // 🔥 新增：Spec分析数据结构 - 完整的12个表格定义
+  Spec: {
+    first_version: {
+      // 1. Study表格 - Attribute, Value
+      Study: {
+        table_title: [{ type: String }], // ['Attribute', 'Value']
+        table_content: [{ 
+          // 每行格式：{Attribute: "属性名", Value: "属性值"}
+          Attribute: { type: String },
+          Value: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 2. Updated Tracker表格 - 4个字段
+      UpdatedTracker: {
+        table_title: [{ type: String }], // ['Changed by (initials)', 'Date Specs Updated', 'Domain Updated', 'Update Description']
+        table_content: [{
+          "Changed by (initials)": { type: String },
+          "Date Specs Updated": { type: String },
+          "Domain Updated": { type: String },
+          "Update Description": { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 3. Datasets表格 - 6个字段
+      Datasets: {
+        table_title: [{ type: String }], // ['Dataset', 'Description', 'Class', 'Structure', 'Purpose', 'Key Variables']
+        table_content: [{
+          Dataset: { type: String },
+          Description: { type: String },
+          Class: { type: String },
+          Structure: { type: String },
+          Purpose: { type: String },
+          "Key Variables": { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 4. Variables表格 - 10个字段 (新增Core字段)
+      Variables: {
+        table_title: [{ type: String }], // ['Dataset', 'Variable', 'Label', 'Data Type', 'Length', 'Format', 'Origin', 'Method Keyword', 'Source/Derivation', 'Core']
+        table_content: [{
+          Dataset: { type: String },
+          Variable: { type: String },
+          Label: { type: String },
+          "Data Type": { type: String },
+          Length: { type: String },
+          Format: { type: String },
+          Origin: { type: String },
+          "Method Keyword": { type: String },
+          "Source/Derivation": { type: String },
+          Core: { type: String } // 🔥 新增：CDISC Core字段
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 5. Methods表格 - 3个字段
+      Methods: {
+        table_title: [{ type: String }], // ['Method Keyword', 'Name', 'Description']
+        table_content: [{
+          "Method Keyword": { type: String },
+          Name: { type: String },
+          Description: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 6. TESTCD_Details表格 - 32个字段
+      TESTCD_Details: {
+        table_title: [{ type: String }], // 完整的32个字段表头
+        table_content: [{
+          Dataset: { type: String },
+          "--TESTCD Value": { type: String },
+          "--TEST Value": { type: String },
+          "Raw Dataset Name or External Source Name": { type: String },
+          "Selection Criteria": { type: String },
+          "--CAT Value": { type: String },
+          "--SCAT Value": { type: String },
+          "--STAT Source/Derivation": { type: String },
+          "--REASND Source/Derivation": { type: String },
+          "--ORRES Source/Derivation": { type: String },
+          "--ORRESU Source/Derivation": { type: String },
+          "--STRESC Source/Derivation": { type: String },
+          "--STRESN Source/Derivation": { type: String },
+          "--STRESU Source/Derivation": { type: String },
+          "--DTC Source/Derivation": { type: String },
+          "--CLSIG Source/Derivation": { type: String },
+          "--POS Source/Derivation": { type: String },
+          "--LAT Source/Derivation": { type: String },
+          "--LOC Source/Derivation": { type: String },
+          "--DIR Source/Derivation": { type: String },
+          "--NAM Source/Derivation": { type: String },
+          "--SPEC Source/Derivation": { type: String },
+          "--OBJ Value": { type: String },
+          "--METHOD Source/Derivation": { type: String },
+          FOCID: { type: String },
+          "TSTDTL Source/Derivation": { type: String },
+          "--EVLINT Source/Derivation": { type: String },
+          "--EVINTX Source/Derivation": { type: String },
+          "--EVAL Source/Derivation": { type: String },
+          "--EVALINT Source/Derivation": { type: String },
+          "RAW Variable 1": { type: String },
+          "RAW Variable 2": { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 7. SUPP_Details表格 - 10个字段
+      SUPP_Details: {
+        table_title: [{ type: String }], // ['Dataset', 'QNAM', 'QLABEL', 'Raw Dataset Name or External Source Name', 'Selection Criteria', 'IDVAR', 'IDVARVAL', 'QVAL', 'QORIG', 'QEVAL']
+        table_content: [{
+          Dataset: { type: String },
+          QNAM: { type: String },
+          QLABEL: { type: String },
+          "Raw Dataset Name or External Source Name": { type: String },
+          "Selection Criteria": { type: String },
+          IDVAR: { type: String },
+          IDVARVAL: { type: String },
+          QVAL: { type: String },
+          QORIG: { type: String },
+          QEVAL: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 8. TA_Data表格 - 10个字段
+      TA_Data: {
+        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'ARMCD', 'ARM', 'TAETORD', 'ETCD', 'ELEMENT', 'TABRANCH', 'TATRANS', 'EPOCH']
+        table_content: [{
+          STUDYID: { type: String },
+          DOMAIN: { type: String },
+          ARMCD: { type: String },
+          ARM: { type: String },
+          TAETORD: { type: String },
+          ETCD: { type: String },
+          ELEMENT: { type: String },
+          TABRANCH: { type: String },
+          TATRANS: { type: String },
+          EPOCH: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 9. TE_Data表格 - 7个字段
+      TE_Data: {
+        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'ETCD', 'ELEMENT', 'TESTRL', 'TEENRL', 'TEDUR']
+        table_content: [{
+          STUDYID: { type: String },
+          DOMAIN: { type: String },
+          ETCD: { type: String },
+          ELEMENT: { type: String },
+          TESTRL: { type: String },
+          TEENRL: { type: String },
+          TEDUR: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 10. TI_Data表格 - 6个字段
+      TI_Data: {
+        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'IETESTCD', 'IETEST', 'IECAT', 'TIVERS']
+        table_content: [{
+          STUDYID: { type: String },
+          DOMAIN: { type: String },
+          IETESTCD: { type: String },
+          IETEST: { type: String },
+          IECAT: { type: String },
+          TIVERS: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 11. TV_Data表格 - 7个字段
+      TV_Data: {
+        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'VISITNUM', 'VISIT', 'ARMCD', 'TVSTRL', 'TVENRL']
+        table_content: [{
+          STUDYID: { type: String },
+          DOMAIN: { type: String },
+          VISITNUM: { type: String },
+          VISIT: { type: String },
+          ARMCD: { type: String },
+          TVSTRL: { type: String },
+          TVENRL: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      },
+      
+      // 12. TS_Data表格 - 11个字段
+      TS_Data: {
+        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'TSSEQ', 'TSGRPID', 'TSPARMCD', 'TSPARM', 'TSVAL', 'TSVALNF', 'TSVALCD', 'TSVCDREF', 'TSVCDVER']
+        table_content: [{
+          STUDYID: { type: String },
+          DOMAIN: { type: String },
+          TSSEQ: { type: String },
+          TSGRPID: { type: String },
+          TSPARMCD: { type: String },
+          TSPARM: { type: String },
+          TSVAL: { type: String },
+          TSVALNF: { type: String },
+          TSVALCD: { type: String },
+          TSVCDREF: { type: String },
+          TSVCDVER: { type: String }
+        }],
+        created_at: { type: Date, default: Date.now },
+        updated_at: { type: Date, default: Date.now },
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+      }
+    }
+  },
 
   // 🔥 新增：可追溯性数据
   traceability: {

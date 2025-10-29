@@ -19,6 +19,12 @@ const {
   uploadCrfFile,     // 🔥 新增：专门的CRF上传函数
   uploadSapFile,     // 🔥 新增：专门的SAP上传函数
   getCrfData,        // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
+  getCriterias,      // 🔥 新增：获取Inclusion/Exclusion Criteria数据
+  getStudyDesign,    // 🔥 新增：获取Study Design数据（主章节及所有子章节）
+  getCrfFormList,    // 🔥 新增：获取CRF Form列表
+  getCrfExcelDataByForm, // 🔥 新增：按Form获取Excel数据
+  saveCrfCorrectedData, // 🔥 新增：保存修正后的CRF数据
+  saveCrfCorrectedDataBatch, // 🔥 新增：保存修正后的CRF数据（分批版本）
   generateCrfAnnotationRects,        // 🔥 新增：生成CRF注解矩形参数
   getCrfAnnotationStatus,           // 🔥 新增：获取CRF注解状态
   downloadAnnotatedCrf,              // 🔥 新增：下载注解CRF PDF
@@ -26,9 +32,42 @@ const {
   resetCrfProgress,                 // 🔥 新增：重置进度（Re-annotate前）
   checkExistingSdtmData,            // 🔥 新增：检查现成SDTM数据
   redrawCrfAnnotationPdf,           // 🔥 新增：仅重绘PDF（跳过GPT）
+  generateSdtmMappingOnly,          // 🔥 新增：只生成SDTM映射
+  generatePdfAnnotationOnly,        // 🔥 新增：只生成PDF注解
   generateAdamToOutputTraceability,  // 🔥 新增：TFL可追溯性生成函数
-  saveDataFlowTraceability          // 🔥 新增：数据流可追溯性保存函数
+  saveDataFlowTraceability,         // 🔥 新增：数据流可追溯性保存函数
+  extractProtocolInfo,              // 🔥 新增：提取protocol信息用于Spec页面
+  saveSpecStudyData,                // 🔥 新增：保存Spec Study表格数据
+  importSDTMIGData,                 // 🔥 新增：导入SDTMIG参考数据
+  getSDTMIGDatasetsList,            // 🔥 新增：获取SDTMIG Dataset列表
+  getSDTMIGDatasetInfo,             // 🔥 新增：获取Dataset详细信息
+  saveSpecDatasetsData,             // 🔥 新增：保存Spec Datasets表格数据
+  getCRFVariablesData,              // 🔥 新增：获取CRF Variables数据
+  saveSpecVariablesData,            // 🔥 新增：保存Spec Variables表格数据
+  // getSDTMIGVariablesReqPerm,        // 🔥 新增：获取SDTMIG Variables (Req+Perm)
+  // getSDTMIGVariablesExp             // 🔥 新增：获取SDTMIG Variables_Exp数据
+  getAllSDTMIGVariables,            // 🔥 新增：获取所有SDTMIG Variables（不分Core类型）
+  updateSpecStatus,                 // 🔥 新增：更新Spec创建状态
+  updateSpecSectionStatus,          // 🔥 新增：更新Spec各section状态
+  generateSdtmMappingForSingleForm  // 🔥 新增：单表单GPT处理（逐表单模式）
 } = require('../controllers/documentController');
+
+// 🔥 新增：SUPP_Details和TESTCD_Details相关控制器
+const { 
+  generateSUPPDetailsData,
+  saveSpecSUPPDetailsData,
+  generateTESTCDDetailsData,
+  saveSpecTESTCDDetailsData,
+  generateTADetailsData,
+  saveSpecTADetailsData,
+  generateTEDetailsData,
+  saveSpecTEDetailsData,
+  generateTIDetailsData,
+  saveSpecTIDetailsData,
+  generateTSDetailsData,
+  generateTSDetailsDataStream, // 🔥 新增：SSE流式生成
+  saveSpecTSDetailsData
+} = require('../controllers/SpecDocumentController');
 
 const router = express.Router();
 
@@ -105,6 +144,24 @@ router.get('/studies/:studyIdentifier/documents', getStudyDocuments);
 // 🔥 新增：获取CRF数据（包含LabelForm/OIDForm）
 router.get('/studies/:studyId/crf-data', getCrfData);
 
+// 🔥 新增：获取Inclusion/Exclusion Criteria数据
+router.get('/studies/:studyId/criterias', getCriterias);
+
+// 🔥 新增：获取Study Design数据（主章节及所有子章节）
+router.get('/studies/:studyId/study-design', getStudyDesign);
+
+// 🔥 新增：获取CRF Form列表
+router.get('/studies/:studyId/crf-form-list', getCrfFormList);
+
+// 🔥 新增：按Form获取Excel数据
+router.get('/studies/:studyId/crf-excel-data-by-form', getCrfExcelDataByForm);
+
+// 🔥 新增：保存修正后的CRF数据
+router.post('/studies/:studyId/save-crf-corrected-data', saveCrfCorrectedData);
+
+// 🔥 新增：保存修正后的CRF数据（分批版本）
+router.post('/studies/:studyId/save-crf-corrected-data-batch', saveCrfCorrectedDataBatch);
+
 // 新增：分析指定文档的ADaM映射
 router.post('/documents/:id/analyze-adam', analyzeDocumentForAdam);
 
@@ -116,6 +173,15 @@ router.post('/studies/:id/save-dataflow', saveDataFlowTraceability);
 
 // 🔥 新增：生成CRF注解矩形参数
 router.post('/studies/:studyId/generate-crf-annotation-rects', generateCrfAnnotationRects);
+
+// 🧠 新增：只生成SDTM映射（不生成PDF）
+router.post('/studies/:studyId/generate-sdtm-mapping-only', generateSdtmMappingOnly);
+
+// 🧠 新增：单表单GPT处理（逐表单模式）
+router.post('/studies/:studyId/generate-sdtm-mapping-for-form', generateSdtmMappingForSingleForm);
+
+// 🎨 新增：只生成PDF注解（使用已存在的SDTM数据）
+router.post('/studies/:studyId/generate-pdf-annotation-only', generatePdfAnnotationOnly);
 
 // 🔥 新增：获取CRF注解状态
 router.get('/studies/:studyId/crf-annotation-status', getCrfAnnotationStatus);
@@ -129,7 +195,66 @@ router.get('/studies/:studyId/crf-annotated.pdf', downloadAnnotatedCrf);
 // 🔥 新增：检查现成SDTM数据
 router.get('/studies/:studyId/check-existing-sdtm-data', checkExistingSdtmData);
 
+// 🔥 新增：提取protocol信息用于Spec页面
+router.get('/studies/:id/protocol-info', extractProtocolInfo);
+
+// 🔥 新增：保存Spec Study表格数据
+router.post('/studies/:id/spec-study-data', saveSpecStudyData);
+
+// 🔥 新增：导入SDTMIG参考数据（一次性操作，应用到所有studies）
+router.post('/import-sdtmig-data', importSDTMIGData);
+
+// 🔥 新增：获取SDTMIG Dataset列表用于Spec页面 (包含studyId以访问CRF数据)
+router.get('/studies/:studyId/sdtmig-datasets-list', getSDTMIGDatasetsList);
+
+// 🔥 新增：获取特定Dataset的详细信息
+router.get('/sdtmig-dataset-info/:datasetName', getSDTMIGDatasetInfo);
+
+// 🔥 新增：保存Spec Datasets表格数据
+router.post('/studies/:id/spec-datasets-data', saveSpecDatasetsData);
+
+// 🔥 新增：获取CRF Variables数据用于Spec Variables表格
+router.get('/studies/:id/crf-variables-data', getCRFVariablesData);
+
+// 🔥 新增：保存Spec Variables表格数据
+router.post('/studies/:id/spec-variables-data', saveSpecVariablesData);
+
+
+// 🔥 新增：获取所有SDTMIG Variables（不分Core类型）用于新统一处理逻辑
+router.get('/sdtmig-variables-all', getAllSDTMIGVariables);
+
 // 🔥 新增：仅重绘PDF（跳过GPT分析）
 router.post('/studies/:studyId/redraw-crf-annotation-pdf', redrawCrfAnnotationPdf);
+
+// 🔥 新增：SUPP_Details相关路由
+router.post('/studies/:studyId/generate-supp-details', generateSUPPDetailsData);
+router.post('/studies/:studyId/spec-supp-details-data', saveSpecSUPPDetailsData);
+
+// 🔥 新增：TESTCD_Details相关路由
+router.post('/studies/:studyId/generate-testcd-details', generateTESTCDDetailsData);
+router.post('/studies/:studyId/spec-testcd-details-data', saveSpecTESTCDDetailsData);
+
+// 🔥 新增：TA_Data相关路由
+router.post('/studies/:studyId/generate-ta-details', generateTADetailsData);
+router.post('/studies/:studyId/spec-ta-details-data', saveSpecTADetailsData);
+
+// 🔥 新增：TE_Data相关路由
+router.post('/studies/:studyId/generate-te-details', generateTEDetailsData);
+router.post('/studies/:studyId/spec-te-details-data', saveSpecTEDetailsData);
+
+// 🔥 新增：TI_Data相关路由
+router.post('/studies/:studyId/generate-ti-details', generateTIDetailsData);
+router.post('/studies/:studyId/spec-ti-details-data', saveSpecTIDetailsData);
+
+// 🔥 新增：TS_Data相关路由
+router.post('/studies/:studyId/generate-ts-details', generateTSDetailsData); // 旧版：一次性返回
+router.get('/studies/:studyId/generate-ts-details-stream', generateTSDetailsDataStream); // 🔥 新增：SSE流式生成
+router.post('/studies/:studyId/spec-ts-details-data', saveSpecTSDetailsData);
+
+// 🔥 新增：更新Spec创建状态
+router.post('/studies/:id/spec-status', updateSpecStatus);
+
+// 🔥 新增：更新Spec各section状态
+router.post('/studies/:id/spec-section-status', updateSpecSectionStatus);
 
 module.exports = router; 

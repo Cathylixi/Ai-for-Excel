@@ -1,0 +1,16 @@
+
+> backend@1.0.0 start
+> node server.js
+
+[dotenv@17.2.1] injecting env (4) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+MongoDB URI: 已设置
+正在连接 MongoDB Atlas...
+[dotenv@17.2.1] injecting env (0) from .env -- tip: 📡 auto-backup env with Radar: https://dotenvx.com/radar
+✅ 已挂载 /api 业务路由
+✅ 已挂载 /api/v2 助手路由
+🔐 使用 dev 证书启动 HTTPS 成功
+🚀 HTTPS 服务器运行在 https://localhost:4000
+📝 环境: development
+🌐 数据库: MongoDB Atlas
+✅ MongoDB Atlas 连接成功！
+数据库名称: llxexcel

@@ -463,11 +463,106 @@ async function getChatCompletion(messages, options = {}) {
   }
 }
 
+/**
+ * Extract protocol metadata (sponsor name, protocol title, protocol number) from protocol text
+ * @param {string} protocolText - First 1000 words of protocol extracted text
+ * @returns {Promise<Object>} {sponsorName, protocolTitle, protocolNumber} or null values if not found
+ */
+async function extractProtocolMetadata(protocolText) {
+  try {
+    console.log('🤖 开始使用GPT提取protocol元数据...');
+    
+    if (!protocolText || typeof protocolText !== 'string') {
+      throw new Error('Protocol text is empty or invalid');
+    }
+
+    // 限制文本长度到1000字
+    const truncatedText = protocolText.split(/\s+/).slice(0, 1000).join(' ');
+    
+    const prompt = `You are analyzing a clinical trial protocol document to extract key metadata.
+
+TASK: Extract the following information from the protocol text:
+1. Sponsor Name - The pharmaceutical company or organization sponsoring the study
+2. Protocol Title - The full title of the clinical trial protocol  
+3. Protocol Number - The unique identifier/code for this protocol (often alphanumeric)
+
+REQUIREMENTS:
+- Return STRICT JSON format: {"sponsorName": "...", "protocolTitle": "...", "protocolNumber": "..."}
+- If any information is not found, use null as the value
+- Extract exact text as it appears in the document (preserve case and formatting)
+- Protocol Number might appear as "Protocol:", "Study Number:", "Protocol ID:", etc.
+- Sponsor Name might appear as "Sponsor:", "Company:", "Pharmaceutical Company:", etc.
+- Protocol Title is usually the main title or appears after "Title:", "Protocol Title:", etc.
+
+PROTOCOL TEXT TO ANALYZE:
+${truncatedText}`;
+
+    console.log('📤 发送GPT请求提取protocol元数据...');
+    
+    const gptResponse = await getChatCompletion([
+      {
+        role: 'user',
+        content: prompt
+      }
+    ], {
+      temperature: 0.1, // 低温度确保准确性
+      max_tokens: 500,
+      model: 'gpt-4'
+    });
+
+    console.log('🟦 GPT protocol元数据提取结果:', gptResponse);
+
+    // 解析JSON响应
+    let result = null;
+    try {
+      result = JSON.parse(gptResponse);
+    } catch (parseError) {
+      // 尝试提取JSON部分
+      const jsonMatch = gptResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          result = JSON.parse(jsonMatch[0]);
+        } catch (e) {
+          console.warn('⚠️ JSON解析失败，使用降级返回值');
+        }
+      }
+    }
+
+    // 验证结果格式
+    if (result && typeof result === 'object') {
+      const finalResult = {
+        sponsorName: result.sponsorName || null,
+        protocolTitle: result.protocolTitle || null, 
+        protocolNumber: result.protocolNumber || null
+      };
+      
+      console.log('✅ Protocol元数据提取完成:', finalResult);
+      return finalResult;
+    } else {
+      console.warn('⚠️ GPT返回格式无效，使用null值');
+      return {
+        sponsorName: null,
+        protocolTitle: null,
+        protocolNumber: null
+      };
+    }
+
+  } catch (error) {
+    console.error('❌ 提取protocol元数据失败:', error);
+    return {
+      sponsorName: null,
+      protocolTitle: null,
+      protocolNumber: null
+    };
+  }
+}
+
 module.exports = {
   identifyAssessmentScheduleWithAI,
   extractStudyNumber,
   identifyAssessmentScheduleForPdfTables,
   getChatCompletion,
+  extractProtocolMetadata,
   /**
    * Identify repeating header/footer/page-number patterns and form name patterns
    * from first N pages' rows (line-level text) of a CRF PDF.

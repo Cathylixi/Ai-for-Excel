@@ -4,6 +4,8 @@
  * Author: LLX Solutions
  */
 
+const { QUESTION_GAP_THRESHOLD } = require('../../config/crfConfig');
+
 /**
  * 检查文本是否为整数
  * @param {string} text - 要检查的文本
@@ -22,6 +24,83 @@ function isInteger(text) {
  */
 function containsNumber(text) {
   return /\d/.test(text || '');
+}
+
+/**
+ * 检测question文本的结束位置（基于相邻words的间隙）
+ * @param {Array} words - words数组
+ * @param {number} gapThreshold - 间隙阈值，默认30px
+ * @returns {number} question部分的结束索引，-1表示没有找到大间隙
+ */
+function findQuestionEndIndex(words, gapThreshold = 30) {
+  if (!Array.isArray(words) || words.length <= 1) return -1;
+  
+  for (let i = 0; i < words.length - 1; i++) {
+    const currentWord = words[i];
+    const nextWord = words[i + 1];
+    
+    // 计算相邻words的间隙
+    const gap = nextWord.x0 - currentWord.x1;
+    
+    if (gap > gapThreshold) {
+      // 发现大间隙，返回question部分的结束索引
+      return i;
+    }
+  }
+  
+  // 没有找到大间隙，返回-1
+  return -1;
+}
+
+/**
+ * 获取question部分的words数组（基于间隙检测）
+ * @param {Array} words - 原始words数组
+ * @param {number} gapThreshold - 间隙阈值，默认30px
+ * @returns {Array} question部分的words数组
+ */
+function getQuestionWords(words, gapThreshold = 30) {
+  if (!Array.isArray(words) || words.length === 0) return words;
+  
+  const questionEndIndex = findQuestionEndIndex(words, gapThreshold);
+  
+  if (questionEndIndex === -1) {
+    // 没有找到大间隙，返回所有words
+    return words;
+  } else {
+    // 返回question部分的words（从0到questionEndIndex）
+    return words.slice(0, questionEndIndex + 1);
+  }
+}
+
+/**
+ * 计算question部分的坐标范围
+ * @param {Array} questionWords - question部分的words数组
+ * @returns {Object|null} 重新计算的坐标信息
+ */
+function calculateQuestionCoordinates(questionWords) {
+  if (!Array.isArray(questionWords) || questionWords.length === 0) {
+    return null;
+  }
+  
+  const x_min = Math.min(...questionWords.map(w => w.x0));
+  const x_max = Math.max(...questionWords.map(w => w.x1));
+  const y_min = Math.min(...questionWords.map(w => w.y0));
+  const y_max = Math.max(...questionWords.map(w => w.y1));
+  const y_center = (y_min + y_max) / 2;
+  const width = x_max - x_min;
+  
+  return { x_min, x_max, y_min, y_max, y_center, width };
+}
+
+/**
+ * 获取question部分的文本内容
+ * @param {Array} words - 原始words数组
+ * @param {number} gapThreshold - 间隙阈值，默认30px
+ * @returns {string} question部分的文本
+ */
+function getQuestionText(words, gapThreshold = 30) {
+  const questionWords = getQuestionWords(words, gapThreshold);
+  return questionWords.map(w => w.text).join(' ');
 }
 
 /**
@@ -283,9 +362,34 @@ function extractLabelOidFromForm(form, formKey) {
     
     if (labelCoordOk && labelTextOk) {
       const matchIndex = getLastIntegerFromTokens(tokens);
+      
+      // 🆕 计算question部分的信息（基于间隙检测）
+      let fullTextWithoutNumber = null;
+      if (Array.isArray(row.words) && row.words.length > 0) {
+        const questionWords = getQuestionWords(row.words, QUESTION_GAP_THRESHOLD);
+        const questionCoords = calculateQuestionCoordinates(questionWords);
+        const questionText = getQuestionText(row.words, QUESTION_GAP_THRESHOLD);
+        
+        if (questionCoords) {
+          fullTextWithoutNumber = {
+            text: questionText,
+            y_center: questionCoords.y_center,
+            x_min: questionCoords.x_min,
+            x_max: questionCoords.x_max,
+            y_min: questionCoords.y_min,
+            y_max: questionCoords.y_max,
+            width: questionCoords.width
+          };
+        }
+      }
+      
       labelCandidates.push({
         match_index: matchIndex,
-        content: { ...row } // 复制整行对象
+        content: { 
+          ...row, // 复制整行对象
+          // 🆕 新增字段：排除数字后的文本和坐标信息
+          full_text_without_number: fullTextWithoutNumber
+        }
       });
       // console.log(`📋 Label行: "${(row.full_text || '').substring(0, 50)}..." → match_index=${matchIndex}`);
     }

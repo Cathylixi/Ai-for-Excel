@@ -1,0 +1,11 @@
+
+> office-addin-taskpane-js@0.0.1 start
+> office-addin-debugging start manifest.xml
+
+Debugging is being started...
+App type: desktop
+Starting the dev server... (webpack serve --mode development)
+The dev server is running on port 3000. Process id: 63184
+Sideloading the Office Add-in...
+Launching excel via /var/folders/08/dlwtjxd16pq53x_f4yyq0xwc0000gn/T/Excel add-in 4eb16b26-b5c2-4b48-a5cb-0ecd3f8e782b.xlsx
+Debugging started.

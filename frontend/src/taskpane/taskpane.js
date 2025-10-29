@@ -163,8 +163,8 @@ function showStep(step) {
   } else if (step === 2 && typeof window !== 'undefined' && window.uploadContext === 'from_chat') {
     // Step 2 in chat-driven flow: hide global nav (Back/Next) completely
     if (navContainer) navContainer.style.display = 'none';
-  } else if (step === 8) {
-    // Step 8 (CRF Annotation): 隐藏导航按钮，通过专用按钮控制
+  } else if (step === 8 || step === 9) {
+    // Step 8 (CRF Annotation) & Step 9 (Spec): 隐藏导航按钮，通过专用按钮控制
     if (navContainer) navContainer.style.display = 'none';
   } else {
     // 其他步骤：显示导航按钮
@@ -471,6 +471,17 @@ function notifyModuleStepChange(stepNumber) {
         container: container
       };
       window.initCrfAnnotationPage(config);
+    }
+  } else if (stepNumber === 9) {
+    // Step 9: Spec
+    const container = document.getElementById('spec-container');
+    if (container && window.initSpecPage) {
+      const config = {
+        API_BASE_URL: API_BASE_URL,
+        studyId: window.currentDocumentId,
+        container: container
+      };
+      window.initSpecPage(config);
     }
   }
 }
