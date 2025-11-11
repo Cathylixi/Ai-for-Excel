@@ -72,9 +72,11 @@ async function generateDatasetSpecificSpecs(studyId) {
   
   console.log(`📊 Found ${uniqueDatasets.length} unique datasets (normalized):`, uniqueDatasets);
   
-  // ========== Step 3: 为每个 dataset 生成 Excel 文件（内存中） ==========
+  // ========== Step 3: 为每个 dataset 生成 Excel 文件（内存中） + SAS 代码 ==========
   const datasetBuffers = [];
   const datasetSummaries = [];
+  const datasetSlicesToSave = {};
+  const datasetSasFiles = []; // Store SAS files for ZIP
   
   for (const dataset of uniqueDatasets) {
     console.log(`\n🔄 处理 dataset: ${dataset}`);
@@ -133,6 +135,24 @@ async function generateDatasetSpecificSpecs(studyId) {
       });
 
       console.log(`✅ ${dataset} Excel 生成成功 (${(buffer.length / 1024).toFixed(2)} KB)`);
+
+      // Save dataset slice data for database storage
+      datasetSlicesToSave[dataset] = {
+        Study: datasetSpec.Study,
+        UpdatedTracker: datasetSpec.UpdatedTracker,
+        Methods: datasetSpec.Methods,
+        Datasets: datasetSpec.Datasets,
+        Variables: datasetSpec.Variables,
+        TESTCD_Details: datasetSpec.TESTCD_Details,
+        SUPP_Details: datasetSpec.SUPP_Details,
+        TA_Data: datasetSpec.TA_Data,
+        TE_Data: datasetSpec.TE_Data,
+        TI_Data: datasetSpec.TI_Data,
+        TV_Data: datasetSpec.TV_Data,
+        TS_Data: datasetSpec.TS_Data,
+        generated_at: new Date(),
+        source: 'auto_generated'
+      };
       
     } catch (error) {
       console.error(`❌ ${dataset} generation failed:`, error);
@@ -146,19 +166,59 @@ async function generateDatasetSpecificSpecs(studyId) {
   }
 
   const successfulDatasets = datasetBuffers.length;
-  console.log(`\n✅ 全部完成，共生成 ${successfulDatasets}/${uniqueDatasets.length} 个文件`);
+  console.log(`\n✅ Excel 生成完成，共生成 ${successfulDatasets}/${uniqueDatasets.length} 个文件`);
 
   if (successfulDatasets === 0) {
     throw new Error('Dataset-specific Excel 文件全部生成失败，无法创建ZIP');
   }
 
-  // ========== Step 4: 打包为 ZIP ==========
+  // ========== Step 4: 保存 datasetSlices 到数据库 ==========
+  console.log('💾 保存 datasetSlices 到数据库...');
+  await Study.findByIdAndUpdate(studyId, {
+    $set: {
+      'Spec.datasetSlices': datasetSlicesToSave
+    }
+  }, { new: false, lean: false });
+  console.log('✅ datasetSlices 已保存到数据库');
+
+  // ========== Step 5: 等待 2 秒 ==========
+  console.log('⏳ 等待 2 秒后生成 SAS 代码...');
+  await new Promise(resolve => setTimeout(resolve, 2000));
+
+  // ========== Step 6: 生成 SAS 代码（从数据库读取 datasetSlices） ==========
+  console.log('🔧 开始生成 SAS 代码...');
+  for (const dataset of uniqueDatasets) {
+    try {
+      if (dataset === 'AE') {
+        const { generateAEsas } = require('./spec_sas/aeSasGenerator');
+        const sasResult = await generateAEsas(studyId);
+        datasetSasFiles.push({
+          dataset,
+          filename: sasResult.filename,
+          content: sasResult.content
+        });
+        console.log(`✅ ${dataset} SAS 代码生成成功 (${(sasResult.content.length / 1024).toFixed(2)} KB)`);
+      }
+    } catch (sasError) {
+      console.warn(`⚠️ ${dataset} SAS 生成失败（非阻塞）:`, sasError.message);
+    }
+  }
+
+  // ========== Step 7: 打包为 ZIP (Excel + SAS) ==========
+  console.log('📦 开始打包 ZIP (Excel + SAS)...');
   const zip = new JSZip();
+  
+  // Add Excel files
   datasetBuffers.forEach(item => {
     zip.file(item.fileName, item.buffer);
   });
 
-  console.log('📦 正在打包 ZIP...');
+  // Add SAS files
+  datasetSasFiles.forEach(item => {
+    zip.file(item.filename, item.content);
+  });
+
+  console.log(`📦 打包文件: ${datasetBuffers.length} 个 Excel + ${datasetSasFiles.length} 个 SAS`);
   const zipBuffer = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
 
   const timestamp = Date.now();
@@ -183,7 +243,8 @@ async function generateDatasetSpecificSpecs(studyId) {
 
   const downloadUrl = `/api/studies/${studyId}/dataset-specs.zip`;
 
-  // 保存信息到数据库
+  // ========== Step 8: 保存 ZIP 元数据到数据库 ==========
+  console.log('💾 保存 ZIP 元数据到数据库...');
   await Study.findByIdAndUpdate(studyId, {
     $set: {
       'Spec.first_version.datasetSpecsExport': {

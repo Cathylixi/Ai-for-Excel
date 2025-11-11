@@ -510,6 +510,33 @@ const StudySchema = new mongoose.Schema({
           error: { type: String }
         }]
       }
+    },
+
+    // Dataset slices: store filtered data by dataset for quick access (moved to Spec level)
+    // Each key is a dataset name (AE, DM, VS, etc.)
+    // Value contains the filtered spec data for that specific dataset
+    datasetSlices: {
+      type: mongoose.Schema.Types.Mixed,
+      default: {}
+      // Example structure:
+      // {
+      //   AE: {
+      //     Study: { table_title: [...], table_content: [...] },
+      //     UpdatedTracker: { table_title: [...], table_content: [...] },
+      //     Methods: { table_title: [...], table_content: [...] },
+      //     Datasets: [...],           // Rows where Dataset='AE' or 'SUPPAE'
+      //     Variables: [...],          // Variables for AE and SUPPAE
+      //     TESTCD_Details: [...],
+      //     SUPP_Details: [...],
+      //     TA_Data: { table_title: [...], table_content: [...] },
+      //     TE_Data: { table_title: [...], table_content: [...] },
+      //     TI_Data: { table_title: [...], table_content: [...] },
+      //     TV_Data: { table_title: [...], table_content: [...] },
+      //     TS_Data: { table_title: [...], table_content: [...], metadata: {} },
+      //     generated_at: Date,
+      //     source: 'auto_generated'
+      //   }
+      // }
     }
   },
 

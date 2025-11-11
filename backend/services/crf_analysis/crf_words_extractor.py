@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 CRF Words Extractor - Extract only word positions from CRF PDF files
 Purpose: Simplified extraction of word positions without form/table processing
@@ -11,6 +12,11 @@ import sys
 import os
 from typing import Dict, Any, List
 import datetime
+
+# Fix Windows Unicode encoding issue
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def extract_words_only(file_path: str, study_id: str = None) -> Dict[str, Any]:
     """

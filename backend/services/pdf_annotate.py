@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 PDF Annotation Script for CRF Documents - FreeText Version
 在PDF上绘制FreeText注解
@@ -14,6 +15,11 @@ import sys
 import json
 import os
 from pathlib import Path
+
+# Fix Windows Unicode encoding issue
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 try:
     from pypdf import PdfReader, PdfWriter
     from pypdf.annotations import FreeText

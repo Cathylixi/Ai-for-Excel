@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 PDF Processing Script - Enhanced Version with Table Extraction
 Purpose: Extract text and table content from PDF files using pdfplumber library
@@ -11,6 +12,11 @@ import sys
 import os
 from typing import Dict, Any, List
 import datetime
+
+# Fix Windows Unicode encoding issue
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def save_debug_text(original_file_path: str, extracted_text: str):
     """

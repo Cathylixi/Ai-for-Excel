@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 PDF Page Extractor - Extract specific pages from PDF while preserving all content
 Purpose: Extract first 5 pages from CRF PDF and create a new PDF file
@@ -9,6 +10,11 @@ import sys
 import os
 from PyPDF2 import PdfReader, PdfWriter
 import argparse
+
+# Fix Windows Unicode encoding issue
+if sys.platform == 'win32':
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
 def extract_pages(input_pdf_path: str, output_pdf_path: str, start_page: int = 1, end_page: int = 5):
     """
