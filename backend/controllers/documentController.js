@@ -1489,21 +1489,21 @@ function extractStudyDesign(sectionedText) {
 }
 
 /**
- * 规范化标题（用于Study Design检测）
- * @param {string} title - 原始标题
- * @returns {string} - 规范化后的标题（小写、去空格、去冒号）
+ * Normalize title for section detection (lowercase, remove extra spaces and trailing colon)
+ * @param {string} title - Original title
+ * @returns {string} - Normalized title
  */
 function normalizeTitle(title) {
   return title.trim().toLowerCase().replace(/\s+/g, ' ').replace(/:$/, '');
 }
 
 /**
- * 检测标题是否为 Study Design 类型
- * @param {string} normalizedTitle - 规范化后的标题（小写、去空格）
- * @returns {boolean} - 是否为 Study Design 标题
+ * Detect if title is Study Design-related
+ * @param {string} normalizedTitle - Normalized title (lowercase, no extra spaces)
+ * @returns {boolean} - Whether it's a Study Design title
  */
 function isStudyDesignTitle(normalizedTitle) {
-  // 常见的 Study Design 关键词模式
+  // Common Study Design keyword patterns
   const studyDesignPatterns = [
     /\bstudy\s+design\b/i,                    // "Study Design"
     /\boverall\s+study\s+design\b/i,          // "Overall Study Design"
@@ -1522,8 +1522,272 @@ function isStudyDesignTitle(normalizedTitle) {
   return false;
 }
 
+/**
+ * Detect if title is Objectives-related
+ * @param {string} normalizedTitle - Normalized title (lowercase, no extra spaces)
+ * @returns {boolean} - Whether it's an Objectives title
+ */
+function isObjectivesTitle(normalizedTitle) {
+  // Common Objectives keyword patterns (English and Chinese)
+  const objectivesPatterns = [
+    /\bobjectives?\b/i,                           // "Objective" or "Objectives"
+    /\bstudy\s+objectives?\b/i,                   // "Study Objective(s)"
+    /\btrial\s+objectives?\b/i,                   // "Trial Objective(s)"
+    /\bprimary\s+and\s+secondary\s+objectives?\b/i, // "Primary and Secondary Objectives"
+    /\baims?\s+and\s+objectives?\b/i,             // "Aims and Objectives"
+    /\bpurposes?\s+and\s+objectives?\b/i,         // "Purposes and Objectives"
+    /\b目[的标]\b/,                                 // Chinese: "目的" or "目标"
+    /\b研究目[的标]\b/                              // Chinese: "研究目的" or "研究目标"
+  ];
 
-// 上传文档处理函数（Study-level with file slots）
+  for (const pattern of objectivesPatterns) {
+    if (pattern.test(normalizedTitle)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Filter out non-content top-level sections (noise) before sending to GPT
+ * @param {string} normalizedTitle - Normalized title
+ * @returns {boolean} - True if should exclude this section
+ */
+function shouldExcludeFromObjectivesCandidates(normalizedTitle) {
+  const noisePatterns = [
+    /\btable\s+of\s+contents?\b/i,          // "Table of Contents"
+    /\blist\s+of\s+(tables|figures|abbreviations)\b/i,  // "List of Tables/Figures/Abbreviations"
+    /\babbreviations?\b/i,                  // "Abbreviations"
+    /\bacronyms?\b/i,                       // "Acronyms"
+    /\bappendix\b/i,                        // "Appendix"
+    /\breferences?\b/i,                     // "References"
+    /\bbibliography\b/i,                    // "Bibliography"
+    /\bsignature\s+page\b/i,                // "Signature Page"
+    /\bversion\s+history\b/i,               // "Version History"
+    /\bchange\s+log\b/i,                    // "Change Log"
+    /\brevision\s+history\b/i,              // "Revision History"
+    /\backnowledg(e)?ments?\b/i,            // "Acknowledgements"
+    /\b目录\b/,                              // Chinese: "目录" (Table of Contents)
+    /\b缩略语\b/,                            // Chinese: "缩略语" (Abbreviations)
+    /\b附录\b/,                              // Chinese: "附录" (Appendix)
+    /\b参考文献\b/                           // Chinese: "参考文献" (References)
+  ];
+
+  for (const pattern of noisePatterns) {
+    if (pattern.test(normalizedTitle)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Extract Objectives section and all its subsections from sectionedText
+ * Uses regex first, falls back to GPT if no match
+ * @param {Array} sectionedText - Array of section objects with {title, level, content, number, source, ...}
+ * @returns {Promise<Object|null>} - Objectives block with structure identical to studyDesign, or null if not found
+ */
+async function extractObjectives(sectionedText) {
+  if (!Array.isArray(sectionedText) || sectionedText.length === 0) {
+    console.log('⚠️ sectionedText is empty or invalid, skipping Objectives extraction');
+    return null;
+  }
+
+  console.log(`🔍 Starting Objectives extraction from ${sectionedText.length} sections...`);
+
+  // ========== Step 1: Try regex matching first ==========
+  const regexResults = [];
+
+  for (let i = 0; i < sectionedText.length; i++) {
+    const section = sectionedText[i];
+    
+    if (!section || !section.title) {
+      continue;
+    }
+
+    const normalizedTitle = normalizeTitle(section.title);
+
+    if (isObjectivesTitle(normalizedTitle)) {
+      const baseLevel = section.level;
+      
+      console.log(`  ✅ [REGEX] Found Objectives title: "${section.title}" (index ${i}, level ${baseLevel})`);
+
+      const objectivesBlock = {
+        title: section.title,
+        level: baseLevel,
+        sectionIndex: i,
+        content: section.content || null,
+        number: section.number || null,
+        source: section.source,
+        extractionMethod: 'regex',  // Track how it was found
+        children: []
+      };
+
+      // Collect all subsections (level > baseLevel)
+      let j = i + 1;
+      let childCount = 0;
+
+      while (j < sectionedText.length) {
+        const nextSection = sectionedText[j];
+        
+        if (!nextSection || !nextSection.title) {
+          j++;
+          continue;
+        }
+
+        // Stop if same-level or higher-level section encountered
+        if (nextSection.level <= baseLevel) {
+          console.log(`  🛑 Encountered same/higher level section "${nextSection.title}" (level ${nextSection.level}), stopping subsection collection`);
+          break;
+        }
+
+        // Collect subsection
+        objectivesBlock.children.push({
+          title: nextSection.title,
+          level: nextSection.level,
+          sectionIndex: j,
+          content: nextSection.content || null,
+          number: nextSection.number || null,
+          source: nextSection.source
+        });
+
+        childCount++;
+        j++;
+      }
+
+      console.log(`  📋 Objectives block extracted: main title + ${childCount} subsections`);
+      regexResults.push(objectivesBlock);
+    }
+  }
+
+  // If regex found results, return
+  if (regexResults.length > 0) {
+    if (regexResults.length === 1) {
+      console.log(`✅ [REGEX] Objectives extraction complete: 1 main block, ${regexResults[0].children.length} subsections`);
+      return regexResults[0];
+    } else {
+      console.log(`✅ [REGEX] Objectives extraction complete: ${regexResults.length} main blocks (rare case)`);
+      return { blocks: regexResults };
+    }
+  }
+
+  // ========== Step 2: Regex failed, try GPT fallback ==========
+  console.log('⚠️ [REGEX] No Objectives section found, trying GPT fallback...');
+
+  // Import GPT function (lazy load to avoid circular dependency)
+  const { chooseObjectivesSectionFromCandidates } = require('../services/openaiService');
+
+  // Collect all level-1 sections as candidates
+  const level1Sections = [];
+  for (let i = 0; i < sectionedText.length; i++) {
+    const section = sectionedText[i];
+    
+    if (!section || !section.title || section.level !== 1) {
+      continue;
+    }
+
+    const normalizedTitle = normalizeTitle(section.title);
+
+    // Filter out noise sections
+    if (shouldExcludeFromObjectivesCandidates(normalizedTitle)) {
+      console.log(`  ⏭️ Excluding noise section: "${section.title}"`);
+      continue;
+    }
+
+    // Collect child titles (first 5 for preview)
+    const childTitles = [];
+    for (let j = i + 1; j < sectionedText.length && sectionedText[j].level > 1; j++) {
+      if (sectionedText[j].title) {
+        childTitles.push(sectionedText[j].title);
+      }
+      if (childTitles.length >= 5) break;
+    }
+
+    level1Sections.push({
+      originalIndex: i,
+      title: section.title,
+      number: section.number || null,
+      content: section.content || null,
+      childTitles: childTitles
+    });
+  }
+
+  if (level1Sections.length === 0) {
+    console.log('⚠️ No valid level-1 sections found for GPT analysis');
+    return null;
+  }
+
+  console.log(`🤖 Calling GPT with ${level1Sections.length} level-1 section candidates...`);
+
+  // Call GPT to choose
+  const gptResult = await chooseObjectivesSectionFromCandidates(level1Sections);
+
+  if (gptResult.selectedIndex === null) {
+    console.log(`⚠️ [GPT] No Objectives section identified (confidence: ${gptResult.confidence}, reason: ${gptResult.reason})`);
+    return null;
+  }
+
+  // GPT selected a valid index
+  const selectedCandidate = level1Sections[gptResult.selectedIndex];
+  const originalSectionIndex = selectedCandidate.originalIndex;
+  const selectedSection = sectionedText[originalSectionIndex];
+
+  console.log(`✅ [GPT] Selected Objectives: "${selectedSection.title}" (index ${originalSectionIndex}, confidence ${gptResult.confidence})`);
+  console.log(`  Reason: ${gptResult.reason}`);
+
+  // Build Objectives block (same structure as regex path)
+  const baseLevel = selectedSection.level;
+  const objectivesBlock = {
+    title: selectedSection.title,
+    level: baseLevel,
+    sectionIndex: originalSectionIndex,
+    content: selectedSection.content || null,
+    number: selectedSection.number || null,
+    source: selectedSection.source,
+    extractionMethod: 'gpt',  // Track GPT was used
+    gptConfidence: gptResult.confidence,  // Store confidence
+    gptReason: gptResult.reason,  // Store reason
+    children: []
+  };
+
+  // Collect all subsections
+  let j = originalSectionIndex + 1;
+  let childCount = 0;
+
+  while (j < sectionedText.length) {
+    const nextSection = sectionedText[j];
+    
+    if (!nextSection || !nextSection.title) {
+      j++;
+      continue;
+    }
+
+    if (nextSection.level <= baseLevel) {
+      console.log(`  🛑 Encountered same/higher level section "${nextSection.title}" (level ${nextSection.level}), stopping`);
+      break;
+    }
+
+    objectivesBlock.children.push({
+      title: nextSection.title,
+      level: nextSection.level,
+      sectionIndex: j,
+      content: nextSection.content || null,
+      number: nextSection.number || null,
+      source: nextSection.source
+    });
+
+    childCount++;
+    j++;
+  }
+
+  console.log(`✅ [GPT] Objectives block extracted: main title + ${childCount} subsections`);
+  return objectivesBlock;
+}
+
+
+// Document upload handler (Study-level with file slots)
 async function uploadDocument(req, res) {
   try {
     console.log('📥 上传请求详情:', {
@@ -1639,18 +1903,32 @@ async function uploadDocument(req, res) {
       console.log(`⏭️ ${slotKey.toUpperCase()} 文件: 跳过 Criteria 提取（仅对 Protocol 生效）`);
     }
     
-    // 🔥 新增：仅对 Protocol 提取 Study Design 章节及其所有子章节
+    // 🔥 Extract Study Design section for Protocol only
     let studyDesign = null;
     if (slotKey === 'protocol' && Array.isArray(parseResult.sectionedText) && parseResult.sectionedText.length > 0) {
       try {
-        console.log('🔍 Protocol 上传: 开始提取 Study Design...');
+        console.log('🔍 Protocol upload: Starting Study Design extraction...');
         studyDesign = extractStudyDesign(parseResult.sectionedText);
       } catch (studyDesignErr) {
-        console.warn('⚠️ Study Design 提取失败，将以 null 保存:', studyDesignErr.message);
+        console.warn('⚠️ Study Design extraction failed, saving as null:', studyDesignErr.message);
         studyDesign = null;
       }
     } else if (slotKey !== 'protocol') {
-      console.log(`⏭️ ${slotKey.toUpperCase()} 文件: 跳过 Study Design 提取（仅对 Protocol 生效）`);
+      console.log(`⏭️ ${slotKey.toUpperCase()} file: Skipping Study Design extraction (only for Protocol)`);
+    }
+    
+    // 🔥 Extract Objectives section for Protocol only (with GPT fallback)
+    let objectives = null;
+    if (slotKey === 'protocol' && Array.isArray(parseResult.sectionedText) && parseResult.sectionedText.length > 0) {
+      try {
+        console.log('🔍 Protocol upload: Starting Objectives extraction...');
+        objectives = await extractObjectives(parseResult.sectionedText);
+      } catch (objectivesErr) {
+        console.warn('⚠️ Objectives extraction failed, saving as null:', objectivesErr.message);
+        objectives = null;
+      }
+    } else if (slotKey !== 'protocol') {
+      console.log(`⏭️ ${slotKey.toUpperCase()} file: Skipping Objectives extraction (only for Protocol)`);
     }
     
     study.files[slotKey].uploadExtraction = {
@@ -1658,12 +1936,14 @@ async function uploadDocument(req, res) {
       sectionedText: parseResult.sectionedText,
       tables: parseResult.tables,
       assessmentSchedule: parseResult.assessmentSchedule,
-      // 仅在Protocol时保存 endpoints
+      // Only save for Protocol
       endpoints: slotKey === 'protocol' ? (parseResult.endpoints || []) : undefined,
-      // 🔥 新增：仅在Protocol时保存 criterias（在成本估算之前提取完成）
+      // 🔥 Only save criterias for Protocol (extracted before cost estimation)
       criterias: slotKey === 'protocol' ? criterias : undefined,
-      // 🔥 新增：仅在Protocol时保存 studyDesign（在成本估算之前提取完成）
-      studyDesign: slotKey === 'protocol' ? studyDesign : undefined
+      // 🔥 Only save studyDesign for Protocol (extracted before cost estimation)
+      studyDesign: slotKey === 'protocol' ? studyDesign : undefined,
+      // 🔥 Only save objectives for Protocol (extracted before cost estimation, with GPT fallback)
+      objectives: slotKey === 'protocol' ? objectives : undefined
     };
 
     // Write partial sdtm procedures (PDF path) into CostEstimateDetails at study level

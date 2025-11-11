@@ -557,12 +557,123 @@ ${truncatedText}`;
   }
 }
 
+/**
+ * Use GPT to identify which top-level section is most likely the "Objectives" section
+ * @param {Array} candidates - Array of level-1 sections with {index, title, number, content, childTitles}
+ * @returns {Promise<{selectedIndex: number|null, confidence: number, reason: string, method: 'gpt'}>}
+ */
+async function chooseObjectivesSectionFromCandidates(candidates) {
+  try {
+    if (!Array.isArray(candidates) || candidates.length === 0) {
+      console.log('⚠️ No candidates provided for Objectives GPT selection');
+      return { selectedIndex: null, confidence: 0, reason: 'No candidates', method: 'gpt' };
+    }
+
+    console.log(`🤖 Calling GPT to choose Objectives from ${candidates.length} top-level sections...`);
+
+    // Build prompt with candidate list
+    const candidatesList = candidates.map((c, idx) => {
+      const contentPreview = c.content ? c.content.substring(0, 200).replace(/\s+/g, ' ') : '(no content)';
+      const childTitlesPreview = c.childTitles && c.childTitles.length > 0 
+        ? c.childTitles.slice(0, 5).join(', ') 
+        : '(no subsections)';
+      
+      return `${idx}. Title: "${c.title}" | Number: ${c.number || 'N/A'} | First 200 chars: "${contentPreview}" | Child titles: ${childTitlesPreview}`;
+    }).join('\n');
+
+    const messages = [
+      {
+        role: 'system',
+        content: 'You are a clinical protocol structure expert. Your task is to identify which top-level section most likely represents the "Objectives" section of a clinical trial protocol.'
+      },
+      {
+        role: 'user',
+        content: `Context: Below is a list of top-level section titles from a clinical trial protocol. The document may be in English, Chinese, or bilingual.
+
+Candidates:
+${candidatesList}
+
+Instructions:
+1. Identify the SINGLE section that most likely corresponds to "Objectives" (e.g., Study Objectives, Primary/Secondary Objectives, Aims and Objectives, etc.)
+2. Look for titles containing words like "Objective(s)", "Aim(s)", or child titles mentioning "Primary Objective", "Secondary Objective"
+3. Avoid sections like "Purpose", "Background", "Introduction" unless they clearly contain objective statements
+4. If none of the candidates clearly represent Objectives, return null
+5. Provide a confidence score (0.0 to 1.0). If confidence < 0.6, return null.
+
+Output ONLY valid JSON in this exact format:
+{
+  "index": <integer index from the list above, or null>,
+  "confidence": <float between 0.0 and 1.0>,
+  "reason": "<brief explanation in one sentence>"
+}
+
+Do NOT include any text before or after the JSON.`
+      }
+    ];
+
+    const response = await getChatCompletion(messages, {
+      model: 'gpt-4o',
+      temperature: 0.3,
+      max_tokens: 200
+    });
+
+    const content = response.trim();
+    console.log('🤖 GPT raw response:', content);
+
+    // Parse JSON response
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      console.warn('⚠️ GPT did not return valid JSON');
+      return { selectedIndex: null, confidence: 0, reason: 'Invalid JSON response', method: 'gpt' };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const { index, confidence, reason } = parsed;
+
+    // Validate response
+    if (typeof index !== 'number' && index !== null) {
+      console.warn('⚠️ GPT returned invalid index type:', index);
+      return { selectedIndex: null, confidence: 0, reason: 'Invalid index type', method: 'gpt' };
+    }
+
+    if (index !== null && (index < 0 || index >= candidates.length)) {
+      console.warn(`⚠️ GPT returned out-of-range index: ${index} (candidates: ${candidates.length})`);
+      return { selectedIndex: null, confidence: 0, reason: 'Index out of range', method: 'gpt' };
+    }
+
+    // Apply confidence threshold
+    const MIN_CONFIDENCE = 0.6;
+    if (confidence < MIN_CONFIDENCE) {
+      console.log(`⚠️ GPT confidence ${confidence} < ${MIN_CONFIDENCE}, rejecting selection`);
+      return { selectedIndex: null, confidence, reason: `Low confidence: ${reason}`, method: 'gpt' };
+    }
+
+    console.log(`✅ GPT selected index ${index} with confidence ${confidence}: "${reason}"`);
+    return {
+      selectedIndex: index,
+      confidence,
+      reason,
+      method: 'gpt'
+    };
+
+  } catch (error) {
+    console.error('❌ GPT Objectives selection failed:', error);
+    return {
+      selectedIndex: null,
+      confidence: 0,
+      reason: `GPT error: ${error.message}`,
+      method: 'gpt'
+    };
+  }
+}
+
 module.exports = {
   identifyAssessmentScheduleWithAI,
   extractStudyNumber,
   identifyAssessmentScheduleForPdfTables,
   getChatCompletion,
   extractProtocolMetadata,
+  chooseObjectivesSectionFromCandidates,
   /**
    * Identify repeating header/footer/page-number patterns and form name patterns
    * from first N pages' rows (line-level text) of a CRF PDF.

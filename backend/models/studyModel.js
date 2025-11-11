@@ -74,11 +74,11 @@ const FileSlotSchema = new mongoose.Schema({
       // }
     },
     
-    // 🔥 新增：Study Design 章节及其所有子章节抽取结果
+    // 🔥 Study Design section and all its subsections extraction result
     studyDesign: {
       type: mongoose.Schema.Types.Mixed,
       default: null
-      // 示例结构: 
+      // Structure example: 
       // {
       //   title: "STUDY DESIGN",
       //   level: 1,
@@ -93,7 +93,31 @@ const FileSlotSchema = new mongoose.Schema({
       //     ...
       //   ]
       // }
-      // 如果文档中有多个Study Design块，则存为：{ blocks: [...] }
+      // If multiple Study Design blocks exist: { blocks: [...] }
+    },
+    
+    // 🔥 Objectives section and all its subsections extraction result (with GPT fallback)
+    objectives: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null
+      // Structure identical to studyDesign, with additional tracking fields:
+      // {
+      //   title: "OBJECTIVES",
+      //   level: 1,
+      //   sectionIndex: 3,
+      //   content: "The primary objective of this study...",
+      //   number: "2",
+      //   source: "pattern",
+      //   extractionMethod: "regex" | "gpt",  // How it was identified
+      //   gptConfidence: 0.85,  // (Optional) If GPT was used, confidence score
+      //   gptReason: "...",     // (Optional) If GPT was used, explanation
+      //   children: [
+      //     { title: "Primary Objective", level: 2, sectionIndex: 4, content: "...", number: "2.1" },
+      //     { title: "Secondary Objectives", level: 2, sectionIndex: 5, content: "...", number: "2.2" },
+      //     ...
+      //   ]
+      // }
+      // If multiple Objectives blocks exist (rare): { blocks: [...] }
     }
   }
 }, { _id: false });
@@ -434,9 +458,9 @@ const StudySchema = new mongoose.Schema({
         status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
       },
       
-      // 12. TS_Data表格 - 11个字段
+      // 12. TS_Data表格 - 21个字段（增加TSVAL1-TSVAL10和metadata）
       TS_Data: {
-        table_title: [{ type: String }], // ['STUDYID', 'DOMAIN', 'TSSEQ', 'TSGRPID', 'TSPARMCD', 'TSPARM', 'TSVAL', 'TSVALNF', 'TSVALCD', 'TSVCDREF', 'TSVCDVER']
+        table_title: [{ type: String }],
         table_content: [{
           STUDYID: { type: String },
           DOMAIN: { type: String },
@@ -445,14 +469,46 @@ const StudySchema = new mongoose.Schema({
           TSPARMCD: { type: String },
           TSPARM: { type: String },
           TSVAL: { type: String },
+          TSVAL1: { type: String },   // 🔥 新增：TSVAL超过200字符时的第2段
+          TSVAL2: { type: String },   // 🔥 新增：第3段
+          TSVAL3: { type: String },   // 🔥 新增：第4段
+          TSVAL4: { type: String },   // 🔥 新增：第5段
+          TSVAL5: { type: String },   // 🔥 新增：第6段
+          TSVAL6: { type: String },   // 🔥 新增：第7段
+          TSVAL7: { type: String },   // 🔥 新增：第8段
+          TSVAL8: { type: String },   // 🔥 新增：第9段
+          TSVAL9: { type: String },   // 🔥 新增：第10段
+          TSVAL10: { type: String },  // 🔥 新增：第11段（最多支持2200字符）
           TSVALNF: { type: String },
           TSVALCD: { type: String },
           TSVCDREF: { type: String },
           TSVCDVER: { type: String }
         }],
+        metadata: {
+          maxTSVALColumns: { type: Number, default: 1 } // 🔥 新增：记录实际使用的最大TSVAL列数
+        },
         created_at: { type: Date, default: Date.now },
         updated_at: { type: Date, default: Date.now },
-        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' } // 🔥 新增
+        status: { type: String, enum: ['false', 'created', 'confirmed'], default: 'false' }
+      },
+
+      // 🔥 新增：Dataset-specific Specs 导出信息
+      datasetSpecsExport: {
+        zipFileName: { type: String },
+        zipFileSize: { type: Number },
+        zipPath: { type: String },
+        downloadUrl: { type: String },
+        generated_at: { type: Date },
+        datasets_summary: [{
+          dataset: { type: String },
+          fileName: { type: String },
+          size: { type: Number },
+          variables: { type: Number },
+          testcd: { type: Number },
+          supp: { type: Number },
+          success: { type: Boolean },
+          error: { type: String }
+        }]
       }
     }
   },

@@ -65,8 +65,11 @@ const {
   generateTIDetailsData,
   saveSpecTIDetailsData,
   generateTSDetailsData,
-  generateTSDetailsDataStream, // 🔥 新增：SSE流式生成
-  saveSpecTSDetailsData
+  generateTSDetailsDataStream,
+  saveSpecTSDetailsData,
+  getSpecTSDetailsData,
+  generateDatasetSpecificSpecsAPI,
+  downloadDatasetSpecificSpecsZip
 } = require('../controllers/SpecDocumentController');
 
 const router = express.Router();
@@ -247,9 +250,14 @@ router.post('/studies/:studyId/generate-ti-details', generateTIDetailsData);
 router.post('/studies/:studyId/spec-ti-details-data', saveSpecTIDetailsData);
 
 // 🔥 新增：TS_Data相关路由
-router.post('/studies/:studyId/generate-ts-details', generateTSDetailsData); // 旧版：一次性返回
-router.get('/studies/:studyId/generate-ts-details-stream', generateTSDetailsDataStream); // 🔥 新增：SSE流式生成
+router.post('/studies/:studyId/generate-ts-details', generateTSDetailsData);
+router.get('/studies/:studyId/generate-ts-details-stream', generateTSDetailsDataStream);
+router.get('/studies/:studyId/ts-details', getSpecTSDetailsData);
 router.post('/studies/:studyId/spec-ts-details-data', saveSpecTSDetailsData);
+
+// 🔥 新增：生成 Dataset-Specific Specs
+router.post('/studies/:studyId/generate-dataset-specs', generateDatasetSpecificSpecsAPI);
+router.get('/studies/:studyId/dataset-specs.zip', downloadDatasetSpecificSpecsZip);
 
 // 🔥 新增：更新Spec创建状态
 router.post('/studies/:id/spec-status', updateSpecStatus);

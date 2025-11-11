@@ -36,38 +36,45 @@
     banner.textContent = message;
   }
 
-  function initBindings(){
+  // Bind "I'm Finished" button click event (extracted for reusability)
+  function bindFinishButton() {
     const finishBtn = qs('spec-finish-btn');
     
-    // I'm Finished 按钮事件 (移植自crfannotation.js的原始逻辑)
-    if (finishBtn) finishBtn.addEventListener('click', () => {
-      // 检查是否是从聊天流程来的 - 现在检测等待spec完成的状态
-      const isFromChatFlow = (window.chatFlowState === 'waiting_for_spec_finish');
-      
-      console.log('🏁 Spec finished', { 
-        isFromChatFlow, 
-        pendingTaskAfterAnnotation: window.pendingTaskAfterAnnotation 
+    if (finishBtn) {
+      finishBtn.addEventListener('click', () => {
+        // Check if coming from chat flow - now detecting waiting_for_spec_finish state
+        const isFromChatFlow = (window.chatFlowState === 'waiting_for_spec_finish');
+        
+        console.log('🏁 Spec finished', { 
+          isFromChatFlow, 
+          pendingTaskAfterAnnotation: window.pendingTaskAfterAnnotation 
+        });
+        
+        // Return to chat page first
+        if (typeof window.showStep === 'function') {
+          window.showStep(1);
+        } else if (typeof window.TaskPaneController?.showStep === 'function') {
+          window.TaskPaneController.showStep(1);
+        }
+        
+        // If from chat flow, trigger completion event (keep original event name for compatibility)
+        if (isFromChatFlow && window.pendingTaskAfterAnnotation) {
+          setTimeout(() => {
+            window.dispatchEvent(new CustomEvent('crfAnnotationComplete', {
+              detail: { 
+                fromChatFlow: true,
+                pendingTaskAfterAnnotation: window.pendingTaskAfterAnnotation
+              }
+            }));
+          }, 300); // Slight delay to ensure page transition completes
+        }
       });
-      
-      // 先返回到聊天页面
-      if (typeof window.showStep === 'function') {
-        window.showStep(1);
-      } else if (typeof window.TaskPaneController?.showStep === 'function') {
-        window.TaskPaneController.showStep(1);
-      }
-      
-      // 如果是从聊天流程来的，触发完成事件 (保持原来的事件名称以兼容现有监听器)
-      if (isFromChatFlow && window.pendingTaskAfterAnnotation) {
-        setTimeout(() => {
-          window.dispatchEvent(new CustomEvent('crfAnnotationComplete', {
-            detail: { 
-              fromChatFlow: true,
-              pendingTaskAfterAnnotation: window.pendingTaskAfterAnnotation
-            }
-          }));
-        }, 300); // 稍微延迟确保页面切换完成
-      }
-    });
+    }
+  }
+  
+  // Legacy wrapper for backward compatibility
+  function initBindings() {
+    bindFinishButton();
   }
 
   // 显示Spec页面界面
@@ -495,7 +502,8 @@
       <div class="spec-wrapper">
         <h3 class="ms-font-l">📋 Spec Processing</h3>
 
-        <div class="annotation-content" style="text-align: center; padding: 40px 20px;">
+        <!-- Intro card with completion message (will be removed after dataset generation) -->
+        <div id="spec-intro-card" class="annotation-content" style="text-align: center; padding: 40px 20px;">
           <div class="annotation-completed">
             <i class="ms-Icon ms-Icon--CheckMark ms-font-xxl" style="color: #107c10; margin-bottom: 20px;"></i>
             <h4 class="ms-font-l">Spec Processing Completed Successfully!</h4>
@@ -514,17 +522,34 @@
           </div>
         </div>
 
+        <!-- Gray button matching other Spec pages style -->
         <div style="text-align: center; margin-top: 24px;">
-          <button id="spec-finish-btn" class="ms-Button ms-Button--primary" style="font-size: 16px; padding: 12px 32px; border-radius: 8px;">
-            <span class="ms-Button-label">I'm Finished</span>
+          <button id="generate-dataset-specs-btn" class="ms-Button" 
+            style="font-size: 16px; padding: 12px 32px; border-radius: 8px; 
+                   background: #f3f2f1; color: #201f1e; border: 1px solid #8a8886;
+                   transition: background 0.2s;"
+            onmouseover="this.style.background='#e1dfdd'"
+            onmouseout="this.style.background='#f3f2f1'">
+            <span class="ms-Button-label">🚀 Generate Dataset-Specific Specs</span>
           </button>
+        </div>
+
+        <!-- Dataset Specs download container (will hold download UI and "I'm Finished" button) -->
+        <div id="spec-completion-page">
+          <div id="dataset-specs-download-container"></div>
         </div>
       </div>
     `;
     
-    // 重新绑定完成按钮事件
+    // Bind button events
     setTimeout(() => {
-      initBindings();
+      // Bind "Generate Dataset-Specific Specs" button
+      const generateBtn = qs('generate-dataset-specs-btn');
+      if (generateBtn && window.SpecDatasetSeparation) {
+        generateBtn.addEventListener('click', () => {
+          window.SpecDatasetSeparation.generateDatasetSpecificSpecs();
+        });
+      }
     }, 50);
   }
   
@@ -2498,6 +2523,19 @@
     // 显示Spec界面
     showSpecInterface();
     
+    // 🔥 初始化 SpecDatasetSeparation 模块
+    if (window.SpecDatasetSeparation && typeof window.SpecDatasetSeparation.init === 'function') {
+      window.SpecDatasetSeparation.init({
+        API_BASE_URL: API_BASE_URL,
+        studyId: currentStudyId
+      });
+      console.log('✅ SpecDatasetSeparation module initialized');
+    }
+    
     console.log('✅ Spec page initialized');
   };
+  
+  // Expose bindFinishButton for external use (e.g., from SpecDatasetSeparation module)
+  window.SpecModule = window.SpecModule || {};
+  window.SpecModule.bindFinishButton = bindFinishButton;
 })();

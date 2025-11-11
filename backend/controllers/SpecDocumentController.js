@@ -6,6 +6,8 @@
 
 const Study = require('../models/studyModel');
 const OpenAI = require('openai');
+const fs = require('fs');
+const path = require('path');
 
 // 初始化OpenAI客户端
 const openai = new OpenAI({
@@ -70,9 +72,8 @@ const TI_TABLE_HEADERS = [
   'STUDYID', 'DOMAIN', 'IETESTCD', 'IETEST', 'IECAT', 'TIVERS'
 ];
 
-// 🔥 定义正确的TS表头 - 11个字段
 const TS_TABLE_HEADERS = [
-  'STUDYID', 'DOMAIN', 'TSSEQ', 'TSGRPID', 'TSPARMCD', 'TSPARM', 'TSVAL', 'TSVALNF', 'TSVALCD', 'TSVCDREF', 'TSVCDVER'
+  'STUDYID', 'DOMAIN', 'TSSEQ', 'TSGRPID', 'TSPARMCD', 'TSPARM', 'TSVAL', 'TSVAL1', 'TSVAL2', 'TSVAL3', 'TSVAL4', 'TSVAL5', 'TSVAL6', 'TSVAL7', 'TSVAL8', 'TSVAL9', 'TSVAL10', 'TSVALNF', 'TSVALCD', 'TSVCDREF', 'TSVCDVER'
 ];
 
 /**
@@ -2095,6 +2096,35 @@ function safeWordBoundaryTruncate(text, maxLength) {
   return truncated;
 }
 
+function splitTextIntoChunks(text, maxLength = 200) {
+  const chunks = [];
+  let remaining = String(text || '').trim();
+  
+  while (remaining.length > 0) {
+    if (remaining.length <= maxLength) {
+      chunks.push(remaining);
+      break;
+    }
+    
+    let cutPoint = remaining.lastIndexOf(' ', maxLength);
+    if (cutPoint === -1 || cutPoint === 0) {
+      cutPoint = maxLength;
+    }
+    
+    chunks.push(remaining.substring(0, cutPoint).trim());
+    remaining = remaining.substring(cutPoint).trim();
+    
+    if (chunks.length >= 11) {
+      if (remaining.length > 0) {
+        chunks[10] = chunks[10] + '...' ;
+      }
+      break;
+    }
+  }
+  
+  return chunks;
+}
+
 /**
  * 保存TI_Details数据到数据库
  * @param {Object} req - Express请求对象
@@ -2431,86 +2461,88 @@ async function normalizeAIRecordsWithTerminology(aiRecords, context) {
   for (let i = 0; i < aiRecords.length; i++) {
     const record = aiRecords[i];
     
-    // 处理TSVAL1-n字段（如果AI返回了多个TSVAL字段）
-    // 将其合并为多条记录，每条TSVAL≤200
     const tsvalFields = [];
     if (record.TSVAL && String(record.TSVAL).trim()) {
       tsvalFields.push(String(record.TSVAL).trim());
     }
     
-    // 检查是否有TSVAL1, TSVAL2等
     let idx = 1;
     while (record[`TSVAL${idx}`]) {
       tsvalFields.push(String(record[`TSVAL${idx}`]).trim());
       idx++;
     }
     
-    // 如果没有任何TSVAL，跳过
     if (tsvalFields.length === 0) {
       continue;
     }
     
-    // 为每个TSVAL创建一条记录
-    for (let j = 0; j < tsvalFields.length; j++) {
-      const tsval = tsvalFields[j];
+    const fullText = tsvalFields.join(' ');
+    let chunks = [];
+    if (fullText.length > 200) {
+      chunks = splitTextIntoChunks(fullText, 200);
+    } else {
+      chunks = [fullText];
+    }
+    
+    const newRecord = {
+      STUDYID: studyNumber,
+      DOMAIN: 'TS',
+      TSSEQ: String(i + 1),
+      TSPARMCD: tsparmcd,
+      TSPARM: record.TSPARM || tsparm || '',
+      TSVAL: chunks[0] || '',
+      TSVAL1: chunks[1] || null,
+      TSVAL2: chunks[2] || null,
+      TSVAL3: chunks[3] || null,
+      TSVAL4: chunks[4] || null,
+      TSVAL5: chunks[5] || null,
+      TSVAL6: chunks[6] || null,
+      TSVAL7: chunks[7] || null,
+      TSVAL8: chunks[8] || null,
+      TSVAL9: chunks[9] || null,
+      TSVAL10: chunks[10] || null,
+      TSVALNF: record.TSVALNF || '',
+      TSVALCD: '',
+      TSVCDREF: '',
+      TSVCDVER: '',
+      TSGRPID: 'PROTOCOL_DERIVED'
+    };
+    
+    const tsval = chunks[0] || '';
+    
+    const isStudyDesignAge = protocolSource === 'Study Design' && 
+      tsparm && (
+        tsparm.includes('Planned Maximum Age') || 
+        tsparm.includes('Planned Minimum Age') ||
+        tsparm === 'Planned Maximum Age of Subjects' ||
+        tsparm === 'Planned Minimum Age of Subjects'
+      );
+    
+    if (isStudyDesignAge) {
+      newRecord.TSVCDREF = 'ISO 8601';
+      newRecord.TSVALCD = '';
+      newRecord.TSVCDVER = '';
+    } else if (rowCodelist) {
+      const upper = rowCodelist.trim().toUpperCase();
       
-      const newRecord = {
-        STUDYID: studyNumber,
-        DOMAIN: 'TS',
-        TSSEQ: String(j + 1),
-        TSPARMCD: tsparmcd,
-        TSPARM: record.TSPARM || '',
-        TSVAL: tsval,
-        TSVALNF: record.TSVALNF || '',
-        TSVALCD: '',
-        TSVCDREF: '',
-        TSVCDVER: '',
-        TSGRPID: 'PROTOCOL_DERIVED' // 默认分组
-      };
-      
-      // 🔥 特殊规则：Study Design的Age参数强制使用ISO 8601
-      const isStudyDesignAge = protocolSource === 'Study Design' && 
-        tsparm && (
-          tsparm.includes('Planned Maximum Age') || 
-          tsparm.includes('Planned Minimum Age') ||
-          tsparm === 'Planned Maximum Age of Subjects' ||
-          tsparm === 'Planned Minimum Age of Subjects'
-        );
-      
-      if (isStudyDesignAge) {
-        // Age参数强制设置为ISO 8601
-        newRecord.TSVCDREF = 'ISO 8601';
+      if (upper === 'ISO 8601' || upper === 'ISO 3166') {
+        newRecord.TSVCDREF = upper;
         newRecord.TSVALCD = '';
         newRecord.TSVCDVER = '';
-        console.log(`✅ [Special Rule] ${tsparmcd} (${tsparm}) → TSVCDREF="ISO 8601" (Study Design Age)`);
-      } else if (rowCodelist) {
-        // 受控术语映射（原有逻辑）
-        const upper = rowCodelist.trim().toUpperCase();
-        
-        if (upper === 'ISO 8601' || upper === 'ISO 3166') {
-          // ISO标准，不查术语
-          newRecord.TSVCDREF = upper;
-          newRecord.TSVALCD = '';
-          newRecord.TSVCDVER = '';
-        } else {
-          // CDISC术语查询
-          const codelistName = getCodelistNameFromShortCode(rowCodelist);
-          if (codelistName) {
-            const terminology = await lookupCDISCTerminology(codelistName, tsval);
-            if (terminology) {
-              newRecord.TSVALCD = terminology.code || '';
-              newRecord.TSVCDREF = 'CDISC';
-              newRecord.TSVCDVER = terminology.version || '';
-              console.log(`✅ [Terminology] ${tsparmcd} - ${tsval} → ${terminology.code}`);
-            } else {
-              console.warn(`⚠️ [Terminology] 未找到匹配: ${tsparmcd} - ${tsval}`);
-            }
+      } else {
+        const codelistName = getCodelistNameFromShortCode(rowCodelist);
+        if (codelistName) {
+          const terminology = await lookupCDISCTerminology(codelistName, tsval);
+          if (terminology) {
+            newRecord.TSVALCD = terminology.code || '';
+            newRecord.TSVCDREF = 'CDISC';
+            newRecord.TSVCDVER = terminology.version || '';
           }
         }
       }
-      
-      normalized.push(newRecord);
     }
+    
+    normalized.push(newRecord);
   }
   
   return normalized;
@@ -2584,8 +2616,8 @@ async function generateTSDetailsDataStream(req, res) {
       'Cover Page': sectionedText[0]?.content || '',
       'Study Design': extraction.studyDesign ? JSON.stringify(extraction.studyDesign) : '',
       'Endpoints': extraction.endpoints ? JSON.stringify(extraction.endpoints) : '',
-      'Endpoint': extraction.endpoints ? JSON.stringify(extraction.endpoints) : '', // 兼容拼写
-      'Objectives': '', // 暂时为空
+      'Endpoint': extraction.endpoints ? JSON.stringify(extraction.endpoints) : '', // Compatibility for spelling
+      'Objectives': extraction.objectives ? JSON.stringify(extraction.objectives) : '', // From database (with GPT fallback support)
       'Spec': study.Spec?.first_version?.Study ? JSON.stringify(study.Spec.first_version.Study) : ''
     };
     
@@ -2597,6 +2629,8 @@ async function generateTSDetailsDataStream(req, res) {
     let processedCount = 0;
     let skippedCount = 0;
     let errorCount = 0;
+    let tempmaxcolumnlength = 1;
+    const allGeneratedData = [];
     
     for (let rowIdx = 0; rowIdx < tsRows.length; rowIdx++) {
       const row = tsRows[rowIdx];
@@ -2717,13 +2751,25 @@ async function generateTSDetailsDataStream(req, res) {
         if (normalized.length > 0) {
           processedCount++;
           
-          // 🔥 发送progress事件（含生成的记录）
+          for (const record of normalized) {
+            let usedColumns = 1;
+            for (let idx = 1; idx <= 10; idx++) {
+              if (record[`TSVAL${idx}`] && String(record[`TSVAL${idx}`]).trim() !== '') {
+                usedColumns = idx + 1;
+              }
+            }
+            if (usedColumns > tempmaxcolumnlength) {
+              tempmaxcolumnlength = usedColumns;
+            }
+          }
+          
+          allGeneratedData.push(...normalized);
+          
           sendEvent('progress', {
             current: rowIdx + 1,
             total: tsRows.length,
             parmcd: tsparmcd,
             status: 'success',
-            rows: normalized,
             processed: processedCount,
             skipped: skippedCount,
             errors: errorCount
@@ -2753,7 +2799,43 @@ async function generateTSDetailsDataStream(req, res) {
       }
     }
     
-    // ========== 步骤4: 发送完成事件 ==========
+    // ========== 步骤4: 保存到数据库 ==========
+    console.log(`\n💾 [Backend] 开始保存生成的数据到数据库...`);
+    
+    try {
+      const studyDoc = await Study.findById(studyId);
+      
+      if (!studyDoc.Spec) studyDoc.Spec = { first_version: {} };
+      if (!studyDoc.Spec.first_version) studyDoc.Spec.first_version = {};
+      if (!studyDoc.Spec.first_version.TS_Data) {
+        studyDoc.Spec.first_version.TS_Data = {
+          table_title: [],
+          table_content: [],
+          status: 'false'
+        };
+      }
+      
+      studyDoc.Spec.first_version.TS_Data.table_title = TS_TABLE_HEADERS;
+      studyDoc.Spec.first_version.TS_Data.table_content = allGeneratedData;
+      studyDoc.Spec.first_version.TS_Data.updated_at = new Date();
+      studyDoc.Spec.first_version.TS_Data.status = 'created';
+      
+      if (!studyDoc.Spec.first_version.TS_Data.metadata) {
+        studyDoc.Spec.first_version.TS_Data.metadata = {};
+      }
+      studyDoc.Spec.first_version.TS_Data.metadata.maxTSVALColumns = tempmaxcolumnlength;
+      
+      await studyDoc.save();
+      console.log(`✅ [Backend] 数据已保存到数据库，记录数: ${allGeneratedData.length}, maxTSVALColumns: ${tempmaxcolumnlength}`);
+      
+    } catch (saveError) {
+      console.error(`❌ [Backend] 保存数据库失败:`, saveError);
+      sendEvent('error', { message: `数据库保存失败: ${saveError.message}` });
+      res.end();
+      return;
+    }
+    
+    // ========== 步骤5: 发送完成事件 ==========
     console.log(`\n✅ [Backend SSE] TS_Details流式生成完成`);
     console.log(`📊 统计: 总计${tsRows.length}行, 成功${processedCount}条, 跳过${skippedCount}条, 失败${errorCount}条`);
     
@@ -2762,10 +2844,10 @@ async function generateTSDetailsDataStream(req, res) {
       processed: processedCount,
       skipped: skippedCount,
       errors: errorCount,
-      message: '所有参数处理完成'
+      maxTSVALColumns: tempmaxcolumnlength,
+      message: '所有参数处理完成，数据已保存到数据库'
     });
     
-    // 🔥 延迟关闭连接，确保done事件完全发送到客户端
     setTimeout(() => {
       res.end();
       console.log('✅ [Backend SSE] 连接已关闭');
@@ -2849,10 +2931,12 @@ async function generateTSDetailsData(req, res) {
       'Cover Page': sectionedText[0]?.content || '',
       'Study Design': extraction.studyDesign ? JSON.stringify(extraction.studyDesign) : '',
       'Endpoints': extraction.endpoints ? JSON.stringify(extraction.endpoints) : '',
+      'Endpoint': extraction.endpoints ? JSON.stringify(extraction.endpoints) : '', // Compatibility for spelling
+      'Objectives': extraction.objectives ? JSON.stringify(extraction.objectives) : '', // From database (with GPT fallback support)
       'Spec': study.Spec?.first_version?.Study ? JSON.stringify(study.Spec.first_version.Study) : ''
     };
     
-    // 输出文本源状态
+    // Output text source status
     Object.keys(sources).forEach(key => {
       const length = sources[key]?.length || 0;
       const status = length > 0 ? '✅' : '⚠️';
@@ -3166,6 +3250,134 @@ async function saveSpecTSDetailsData(req, res) {
   }
 }
 
+async function getSpecTSDetailsData(req, res) {
+  try {
+    const { studyId } = req.params;
+    
+    const study = await Study.findById(studyId)
+      .select('Spec.first_version.TS_Data')
+      .lean();
+    
+    if (!study || !study.Spec?.first_version?.TS_Data) {
+      return res.status(404).json({
+        success: false,
+        message: 'TS_Data不存在'
+      });
+    }
+    
+    const tsData = study.Spec.first_version.TS_Data;
+    
+    res.json({
+      success: true,
+      data: {
+        table_title: tsData.table_title || [],
+        table_content: tsData.table_content || [],
+        metadata: tsData.metadata || {},
+        status: tsData.status
+      }
+    });
+    
+  } catch (error) {
+    console.error('❌ [Backend] 读取TS_Details失败:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || '读取失败'
+    });
+  }
+}
+
+async function generateDatasetSpecificSpecsAPI(req, res) {
+  try {
+    const { studyId } = req.params;
+    console.log(`📊 [API] 开始生成 dataset-specific specs，studyId: ${studyId}`);
+    
+    const datasetSeparationService = require('../services/Spec_dataset_separation');
+    const result = await datasetSeparationService.generateDatasetSpecificSpecs(studyId);
+    
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ [API] 生成 dataset-specific specs 失败:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || '生成失败'
+    });
+  }
+}
+
+async function downloadDatasetSpecificSpecsZip(req, res) {
+  try {
+    const { studyId } = req.params;
+    console.log('📥 [API] 下载 dataset-specific ZIP 请求:', studyId);
+
+    if (!studyId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Study ID is required'
+      });
+    }
+
+    const study = await Study.findById(studyId)
+      .select('Spec.first_version.datasetSpecsExport')
+      .lean();
+
+    if (!study || !study.Spec?.first_version) {
+      return res.status(404).json({
+        success: false,
+        message: 'Study not found'
+      });
+    }
+
+    const exportInfo = study.Spec.first_version.datasetSpecsExport;
+
+    if (!exportInfo || !exportInfo.zipPath) {
+      return res.status(404).json({
+        success: false,
+        message: 'Dataset-spec ZIP not generated yet. Please generate first.'
+      });
+    }
+
+    const zipPath = exportInfo.zipPath;
+
+    if (!fs.existsSync(zipPath)) {
+      console.warn('❌ dataset ZIP 文件不存在:', zipPath);
+      return res.status(404).json({
+        success: false,
+        message: 'Dataset-spec ZIP file not found on server'
+      });
+    }
+
+    const fileName = exportInfo.zipFileName || path.basename(zipPath);
+    const stats = fs.statSync(zipPath);
+
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Length', stats.size);
+    res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(fileName)}"`);
+
+    const stream = fs.createReadStream(zipPath);
+    stream.on('error', (err) => {
+      console.error('❌ 读取ZIP文件失败:', err);
+      if (!res.headersSent) {
+        res.status(500).json({ success: false, message: 'Failed to read ZIP file' });
+      } else {
+        res.end();
+      }
+    });
+
+    stream.pipe(res);
+  } catch (error) {
+    console.error('❌ [API] 下载 dataset-specific ZIP 失败:', error);
+    if (!res.headersSent) {
+      res.status(500).json({
+        success: false,
+        message: error.message || '下载失败'
+      });
+    } else {
+      res.end();
+    }
+  }
+}
+
 module.exports = {
   generateSUPPDetailsData,
   saveSpecSUPPDetailsData,
@@ -3178,6 +3390,9 @@ module.exports = {
   generateTIDetailsData,
   saveSpecTIDetailsData,
   generateTSDetailsData,
-  generateTSDetailsDataStream, // 🔥 新增：SSE流式生成
-  saveSpecTSDetailsData
+  generateTSDetailsDataStream,
+  saveSpecTSDetailsData,
+  getSpecTSDetailsData,
+  generateDatasetSpecificSpecsAPI,
+  downloadDatasetSpecificSpecsZip
 };

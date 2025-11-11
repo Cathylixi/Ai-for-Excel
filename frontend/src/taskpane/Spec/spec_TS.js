@@ -15,19 +15,11 @@
         return;
       }
       
-      // 🔥 使用SSE流式生成 + 实时写入Excel
-      const allData = await generateTSDataStream();
+      await generateTSDataStream();
+      console.log('✅ TS数据生成并保存完成');
       
-      if (!allData || allData.length === 0) {
-        console.log('⚠️ 没有生成TS数据');
-        return;
-      }
-      
-      console.log(`✅ 总计生成 ${allData.length} 条TS数据`);
-      
-      // 保存到数据库
-      console.log('💾 保存TS数据到数据库...');
-      await saveTSDataToDatabase(allData);
+      console.log('📊 开始从数据库读取并渲染Excel表格...');
+      await renderTSDataFromDatabase();
       
       console.log('✅ TS_Data生成流程完成');
       
@@ -37,75 +29,40 @@
     }
   }
   
-  /**
-   * 🔥 SSE流式生成TS数据 + 实时写入Excel + 进度显示
-   */
   async function generateTSDataStream() {
     return new Promise((resolve, reject) => {
       console.log('🌐 开始SSE流式生成TS数据...');
       console.log(`📍 SSE端点: ${API_BASE_URL}/api/studies/${currentStudyId}/generate-ts-details-stream`);
       
-      const allData = []; // 累积所有生成的数据
-      let buffer = []; // 批量写入Excel的缓冲区
-      const BUFFER_SIZE = 5; // 每5条写入一次Excel
-      let currentRow = 2; // Excel起始行（A1是表头）
-      let isDoneReceived = false; // 🔥 标记done事件是否已接收
+      let isDoneReceived = false;
       
       // 创建EventSource
       const eventSource = new EventSource(
         `${API_BASE_URL}/api/studies/${currentStudyId}/generate-ts-details-stream`
       );
       
-      // 监听progress事件
       eventSource.addEventListener('progress', async (event) => {
         try {
           const data = JSON.parse(event.data);
           console.log(`📊 [进度] ${data.current}/${data.total} - ${data.parmcd} (${data.status})`);
-          
-          // 更新进度条UI
           updateProgressUI(data.current, data.total, data.parmcd);
-          
-          if (data.status === 'success' && data.rows && data.rows.length > 0) {
-            // 累积到总数据
-            allData.push(...data.rows);
-            
-            // 添加到buffer
-            buffer.push(...data.rows);
-            
-            // 如果buffer达到阈值，批量写入Excel
-            if (buffer.length >= BUFFER_SIZE) {
-              console.log(`📋 批量写入Excel: ${buffer.length} 条（从行${currentRow}开始）`);
-              await appendToExcel(buffer, currentRow);
-              currentRow += buffer.length;
-              buffer = []; // 清空buffer
-            }
-          }
-          
         } catch (err) {
           console.error('❌ 处理progress事件失败:', err);
         }
       });
       
-      // 监听done事件
       eventSource.addEventListener('done', async (event) => {
         try {
-          isDoneReceived = true; // 🔥 标记done已接收
+          isDoneReceived = true;
           const data = JSON.parse(event.data);
           console.log(`✅ [完成] 总计: ${data.total}, 成功: ${data.processed}, 跳过: ${data.skipped}, 失败: ${data.errors}`);
+          console.log(`📊 maxTSVALColumns: ${data.maxTSVALColumns}`);
           
-          // Flush最后的buffer
-          if (buffer.length > 0) {
-            console.log(`📋 最后批次写入Excel: ${buffer.length} 条`);
-            await appendToExcel(buffer, currentRow);
-            buffer = [];
-          }
+          window.tsMaxColumns = data.maxTSVALColumns || 1;
           
-          // 🔥 延迟关闭，确保Excel写入完成
-          setTimeout(() => {
-            eventSource.close();
-            hideProgressUI();
-            resolve(allData);
-          }, 500);
+          eventSource.close();
+          hideProgressUI();
+          resolve();
           
         } catch (err) {
           console.error('❌ 处理done事件失败:', err);
@@ -144,46 +101,92 @@
     });
   }
   
-  /**
-   * 批量写入Excel（追加模式）
-   * @param {Array} rows - 要写入的数据行
-   * @param {number} startRow - 起始行号（从2开始，1是表头）
-   */
-  async function appendToExcel(rows, startRow) {
+  async function renderTSDataFromDatabase() {
     try {
+      console.log('📖 从数据库读取TS_Data...');
+      
+      const response = await fetch(
+        `${API_BASE_URL}/api/studies/${currentStudyId}/ts-details`,
+        { method: 'GET' }
+      );
+      
+      if (!response.ok) {
+        throw new Error(`读取失败: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || '读取失败');
+      }
+      
+      const { table_content, metadata } = result.data;
+      const maxTSVALColumns = metadata.maxTSVALColumns || 1;
+      
+      console.log(`✅ 读取成功: ${table_content.length} 条记录`);
+      console.log(`📊 maxTSVALColumns: ${maxTSVALColumns}`);
+      
+      const baseHeaders = [
+        'STUDYID', 'DOMAIN', 'TSSEQ', 'TSGRPID', 
+        'TSPARMCD', 'TSPARM', 'TSVAL'
+      ];
+      
+      for (let i = 1; i < maxTSVALColumns; i++) {
+        baseHeaders.push(`TSVAL${i}`);
+      }
+      
+      baseHeaders.push('TSVALNF', 'TSVALCD', 'TSVCDREF', 'TSVCDVER');
+      
+      console.log(`📋 动态列头 (${baseHeaders.length}列):`, baseHeaders);
+      
       await Excel.run(async (context) => {
-        const worksheet = context.workbook.worksheets.getItem('TS_Data');
+        const sheet = context.workbook.worksheets.getItem('TS_Data');
         
-        // 准备Excel数据格式 (二维数组) - 11个字段
-        const excelData = rows.map(row => [
-          row.STUDYID || '',
-          row.DOMAIN || '',
-          row.TSSEQ || '',
-          row.TSGRPID || '',
-          row.TSPARMCD || '',
-          row.TSPARM || '',
-          row.TSVAL || '',
-          row.TSVALNF || '',
-          row.TSVALCD || '',
-          row.TSVCDREF || '',
-          row.TSVCDVER || ''
-        ]);
-        
-        // 写入数据（追加）
-        const endRow = startRow + rows.length - 1;
-        const dataRange = worksheet.getRange(`A${startRow}:K${endRow}`);
-        dataRange.values = excelData;
-        
-        // 设置格式（可选，减少操作）
-        dataRange.format.horizontalAlignment = 'Left';
-        
+        const headerRange = sheet.getRange(`A1:${getColumnLetter(baseHeaders.length)}1`);
+        headerRange.values = [baseHeaders];
+        headerRange.format.font.bold = true;
         await context.sync();
+        
+        const BATCH_SIZE = 50;
+        for (let i = 0; i < table_content.length; i += BATCH_SIZE) {
+          const batch = table_content.slice(i, i + BATCH_SIZE);
+          const startRow = i + 2;
+          
+          const rowsData = batch.map(record => {
+            const row = [];
+            for (const header of baseHeaders) {
+              const value = record[header];
+              row.push(value !== undefined && value !== null ? String(value) : '');
+            }
+            return row;
+          });
+          
+          const dataRange = sheet.getRangeByIndexes(
+            startRow - 1, 0,
+            batch.length, baseHeaders.length
+          );
+          dataRange.values = rowsData;
+          
+          await context.sync();
+          console.log(`📋 已写入 ${i + batch.length}/${table_content.length} 行`);
+        }
+        
+        console.log('✅ Excel表格渲染完成');
       });
       
     } catch (error) {
-      console.error('❌ 批量写入Excel失败:', error);
+      console.error('❌ 渲染Excel失败:', error);
       throw error;
     }
+  }
+  
+  function getColumnLetter(columnNumber) {
+    let letter = '';
+    while (columnNumber > 0) {
+      const remainder = (columnNumber - 1) % 26;
+      letter = String.fromCharCode(65 + remainder) + letter;
+      columnNumber = Math.floor((columnNumber - 1) / 26);
+    }
+    return letter;
   }
   
   /**

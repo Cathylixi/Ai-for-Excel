@@ -660,35 +660,35 @@ class PypdfService {
    * @returns {Array} Array of hierarchical section objects
    */
   extractSectionsFromPdf(text) {
-    // // console.log('📚 Starting hierarchical PDF section extraction...');
+    console.log('📚 Starting hierarchical PDF section extraction...');
     
     // Step 1: Identify Table of Contents positions
     const tocInfo = this.identifyTableOfContents(text);
-    // // console.log(`📖 Found ${tocInfo.length} Table of Contents sections`);
+    console.log(`📖 Found ${tocInfo.length} Table of Contents sections`);
     
     // Step 2: Find all numbered titles and their positions (excluding TOC areas)
     const numberedTitles = this.findNumberedTitles(text, tocInfo);
-    // // console.log(`🔢 Found ${numberedTitles.length} numbered titles`);
+    console.log(`🔢 Found ${numberedTitles.length} numbered titles`);
     
     // Step 3: Handle pre-numbered content (everything before first numbered section, excluding TOC)
     const preNumberedSections = this.extractPreNumberedContent(text, numberedTitles, tocInfo);
-    // // console.log(`📋 Pre-numbered sections: ${preNumberedSections.length}`);
+    console.log(`📋 Pre-numbered sections: ${preNumberedSections.length}`);
     
     // Step 4: Extract complete Table of Contents sections
     const tocSections = this.extractTableOfContentsSections(text, tocInfo, numberedTitles);
-    // // console.log(`📖 Extracted ${tocSections.length} complete TOC sections`);
+    console.log(`📖 Extracted ${tocSections.length} complete TOC sections`);
     
     // Step 5: Create hierarchical sections with proper content ranges
     const hierarchicalSections = this.createHierarchicalSections(text, numberedTitles);
-    // // console.log(`🏗️ Hierarchical sections: ${hierarchicalSections.length}`);
+    console.log(`🏗️ Hierarchical sections: ${hierarchicalSections.length}`);
     
     // Step 6: Combine all sections in proper order
     const allSections = [...preNumberedSections, ...tocSections, ...hierarchicalSections];
-    // // console.log(`✅ Total sections: ${allSections.length}`);
+    console.log(`✅ Total sections: ${allSections.length}`);
     
     // Step 7: Validate and clean up
     const finalSections = this.validateSections(allSections);
-    // // console.log(`🧹 Final valid sections: ${finalSections.length}`);
+    console.log(`🧹 Final valid sections: ${finalSections.length}`);
     
     return finalSections;
   }
@@ -923,12 +923,54 @@ class PypdfService {
    * @param {Array} tocInfo - Array of TOC position info to exclude
    * @returns {Array} Array of numbered title objects
    */
+  /**
+   * 🔥 新增：检测文本是否像"内容"而非"标题"
+   * @param {string} cleanTitle - 清理后的标题文本
+   * @returns {boolean} true = 像内容（应拒绝），false = 像标题（可接受）
+   */
+  looksLikeContentNotHeading(cleanTitle) {
+    // 1. 包含问号（问句通常是列表项内容，不是标题）
+    if (cleanTitle.includes('?')) {
+      return true;
+    }
+    
+    // 2. 以疑问词或常见动词开头（典型的句子/列表项）
+    if (/^(Does|Is|Has|Have|Will|Can|Should|Must|May|Do|Are|Was|Were|Perform|Complete|Review|Provide|Include|Exclude)\b/i.test(cleanTitle)) {
+      return true;
+    }
+    
+    // 3. 包含多个逗号（复杂句子，不太可能是标题）
+    const commaCount = (cleanTitle.match(/,/g) || []).length;
+    if (commaCount >= 2) {
+      return true;
+    }
+    
+    // 4. 标题过长且包含连词（典型的句子）
+    if (cleanTitle.length > 80 && /\b(and|or|but|if|when|that|which|because|while|since|unless)\b/i.test(cleanTitle)) {
+      return true;
+    }
+    
+    // 5. 以等号开头（如 "1 = Mild AE: ..."）
+    if (/^[=:]/.test(cleanTitle.trim())) {
+      return true;
+    }
+    
+    return false;
+  }
+
   findNumberedTitles(text, tocInfo = []) {
     const numberedTitles = [];
     const lines = text.split('\n');
     
-    // 🔥 新增：维护当前已接受的编号路径
+    // 🔥 维护当前已接受的编号路径
     let currentPath = null;  // 初始为null，表示还没有接受任何标题
+    
+    // 🔥 标题长度限制
+    const MIN_TITLE_LEN = 4;
+    const MAX_TITLE_LEN = 120;
+    
+    // 🔥 地址/页脚关键词（用于过滤噪音）
+    const ADDRESS_KEYWORDS = /\b(?:Drive|Street|Avenue|Road|Blvd|Boulevard|Suite|Zip|CA|USA|Tel|Telephone|Fax|Email|Inc|LLC|Ltd|Corporation|Corp)\b/i;
     
     let currentPosition = 0;
     const numericHeadingRegex = /^(\d+(?:\.\d+)*)(?:[.)])?\s+(.+?)(?:\.{2,}\s*(\d+))?$/;
@@ -976,7 +1018,19 @@ class PypdfService {
         .replace(/\s+\d+\s*$/, '')
         .trim();
 
-      if (cleanTitle.length <= 2) {
+      // 🔥 标题长度限制
+      if (cleanTitle.length < MIN_TITLE_LEN) {
+        console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle}" - Title too short (${cleanTitle.length} < ${MIN_TITLE_LEN})`);
+        continue;
+      }
+      if (cleanTitle.length > MAX_TITLE_LEN) {
+        console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle.substring(0, 50)}..." - Title too long (${cleanTitle.length} > ${MAX_TITLE_LEN})`);
+        continue;
+      }
+
+      // 🔥 新增：内容特征检测（拒绝问句、列表项等）
+      if (this.looksLikeContentNotHeading(cleanTitle)) {
+        console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle.substring(0, 60)}..." - Looks like content, not heading (contains question/verb/commas)`);
         continue;
       }
 
@@ -987,13 +1041,40 @@ class PypdfService {
       if (isNumericHeading) {
         level = numberPart.split('.').length;
         newPath = this.parseNumberPath(numberPart);
+        
+        const isSingleLevel = level === 1;
+        const singleNumber = isSingleLevel ? newPath[0] : null;
 
+        // 🔥 过滤单段大数字（≥50，通常是地址/页码等噪音）
+        if (isSingleLevel && singleNumber >= 50) {
+          console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle}" - Single-level number too large (${singleNumber} ≥ 50, likely address/footer)`);
+          continue;
+        }
+
+        // 🔥 过滤地址/页脚特征
+        if (isSingleLevel && ADDRESS_KEYWORDS.test(cleanTitle)) {
+          console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle}" - Contains address/footer keywords`);
+          continue;
+        }
+
+        // 🔥 首章必须从 1 开始
+        if (currentPath === null) {
+          if (!(isSingleLevel && singleNumber === 1)) {
+            console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle}" - First chapter must be "1", not "${numberPart}"`);
+            continue;
+          }
+          // 通过：这是第一个有效的章节标题 "1 ..."
+        }
+
+        // 🔥 保持原有的严格编号继承约束
         if (currentPath !== null) {
           if (!this.isValidNextNumber(currentPath, newPath)) {
+            console.log(`⚠️ [REJECTED] "${numberPart} ${cleanTitle}" - Invalid numbering sequence (current: ${currentPath.join('.')}, new: ${newPath.join('.')})`);
             continue;
           }
         }
       } else {
+        // Appendix 标题处理
         const appendixId = numberPart.replace(/^Appendix\s+/i, '');
         const appendixSegments = appendixId.split('.');
         level = appendixSegments.length;
@@ -1012,9 +1093,11 @@ class PypdfService {
 
       if (isNumericHeading) {
         currentPath = newPath;
+        console.log(`✅ [ACCEPTED] "${numberPart} ${cleanTitle}" (level ${level})`);
       }
     }
     
+    console.log(`🎯 Total numbered titles accepted: ${numberedTitles.length}`);
     return numberedTitles;
   }
 
