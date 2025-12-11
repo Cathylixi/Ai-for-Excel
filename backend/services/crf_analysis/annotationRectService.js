@@ -509,24 +509,29 @@ function generateRectFromContent(content, displayText, type, pageDimensions, ind
     // 🔧 计算动态宽度
     const dynamicWidth = calculateTextWidth(displayText);
     
-    // 🆕 优先使用排除数字后的坐标信息
-    let x_max, y_center, x_min;
-    const page_number = content.page_number;
+    // 🆕 优先使用新的结构化字段（question_part）
+    let x_max, y_center, x_min, page_number;
+    let coordinateSource = 'fallback'; // 用于调试
     
-    if (content.full_text_without_number && content.full_text_without_number.x_max) {
-      // 使用排除数字后的坐标
-      x_max = content.full_text_without_number.x_max;
-      y_center = content.full_text_without_number.y_center;
-      x_min = content.full_text_without_number.x_min;
+    if (type === 'Label' && content.question_part && content.question_part.bbox) {
+      // 优先级 1：使用新的 question_part（最准确）
+      const bbox = content.question_part.bbox;
+      x_max = bbox.x_max;
+      x_min = bbox.x_min;
+      y_center = (bbox.y_min + bbox.y_max) / 2;
+      page_number = content.question_part.page_number;
+      coordinateSource = 'question_part';
     } else {
-      // 回退到原始坐标
+      // 优先级 3：回退到原始坐标
       x_max = content.x_max;
       y_center = content.y_center || ((content.y_min + content.y_max) / 2);
       x_min = content.x_min;
+      page_number = content.page_number;
+      coordinateSource = 'original_coords';
     }
 
     if (typeof x_max !== 'number' || typeof y_center !== 'number' || typeof page_number !== 'number') {
-      console.warn(`⚠️ ${type} index ${index}(显示文本:"${displayText}"): 坐标信息不完整`, { x_max, y_center, page_number });
+      console.warn(`⚠️ ${type} index ${index}(显示文本:"${displayText}"): 坐标信息不完整 [来源: ${coordinateSource}]`, { x_max, y_center, page_number });
       return null;
     }
 
@@ -567,7 +572,7 @@ function generateRectFromContent(content, displayText, type, pageDimensions, ind
     const rectX1 = annotX + dynamicWidth; // 🔧 使用动态宽度
     const rectY1 = pypdfY + (ANNOT_BOX_W / 2);
 
-    // console.log(`    ✅ ${type} index ${index}: 生成矩形 [${rectX0.toFixed(1)}, ${rectY0.toFixed(1)}, ${rectX1.toFixed(1)}, ${rectY1.toFixed(1)}] on page ${page_number}, 显示文本: "${displayText}", 动态宽度: ${dynamicWidth}px`);
+    // console.log(`    ✅ ${type} index ${index}: 生成矩形 [${rectX0.toFixed(1)}, ${rectY0.toFixed(1)}, ${rectX1.toFixed(1)}, ${rectY1.toFixed(1)}] on page ${page_number}, 显示文本: "${displayText}", 动态宽度: ${dynamicWidth}px, 坐标来源: ${coordinateSource}`);
 
     return {
       page_number,
@@ -584,6 +589,7 @@ function generateRectFromContent(content, displayText, type, pageDimensions, ind
       variable_index: variableIndex, // 🆕 新增：variable索引用于区分同一问题的多个框
       // 保留原始坐标供调试
       _debug: {
+        coordinate_source: coordinateSource, // 🆕 新增：坐标来源
         original_x_max: x_max,
         original_y_center: y_center,
         page_height: pageDim.height,

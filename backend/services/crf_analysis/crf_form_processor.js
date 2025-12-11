@@ -202,8 +202,9 @@ function assignRowsToForms(rowsData, formTitles, unwantedPatterns = []) {
   });
 
   // 4) 为所有Forms添加LabelForm和OIDForm
-  // console.log('🎯 第4步：提取LabelForm和OIDForm...');
+  console.log('   🎯 [Sub-step 5.3] Extracting Label/OID Forms...');
   const formsWithLabelOid = addLabelOidToAllForms(formsByTitle);
+  console.log('   ✅ [Sub-step 5.3] Label/OID Extraction Completed');
   
   return formsWithLabelOid;
 }
@@ -291,8 +292,9 @@ function processCrfForms(rowsData, identifiedPatterns) {
     }
     
     // 1. 提取Form标题行
-    // console.log('📋 第1步：提取Form标题...');
+    console.log('   📋 [Sub-step 5.1] Extracting Form Title Rows...');
     const formTitles = extractFormTitleRows(rowsData, identifiedPatterns.form_name_patterns || []);
+    console.log(`   ✅ [Sub-step 5.1] Found ${formTitles.length} Form Titles`);
     
     if (formTitles.length === 0) {
       console.warn('⚠️ 未发现任何Form标题');
@@ -305,7 +307,7 @@ function processCrfForms(rowsData, identifiedPatterns) {
     // console.log(`✅ 发现${formTitles.length}个Form标题`);
     
     // 2. 为每个Form分配内容行
-    // console.log('📝 第2步：分配Form内容...');
+    console.log('   📝 [Sub-step 5.2] Assigning Rows to Forms...');
     const unwantedPatterns = [
       ...(identifiedPatterns.header_patterns || []),
       ...(identifiedPatterns.footer_patterns || []),
@@ -324,6 +326,7 @@ function processCrfForms(rowsData, identifiedPatterns) {
     // });
     
     const formContents = assignRowsToForms(rowsData, formTitles, unwantedPatterns);
+    console.log('   ✅ [Sub-step 5.2] Rows Assigned to Forms');
     
     // 3. 已改为Segments聚合：不再进行旧的跨页合并
     // console.log('🔗 第3步：Segments聚合完成（已替代跨页合并）');

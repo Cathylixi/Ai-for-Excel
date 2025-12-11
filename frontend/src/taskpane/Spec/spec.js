@@ -493,7 +493,7 @@
     }
   }
   
-  // 显示完成状态UI (与CRF annotation完成界面风格一致)
+  // Display completion UI after all sheets created (matches CRF annotation complete style)
   function showSpecCompleteUI() {
     const container = qs('spec-container');
     if (!container) return;
@@ -522,7 +522,20 @@
           </div>
         </div>
 
-        <!-- Gray button matching other Spec pages style -->
+        <!-- Internal Spec download button -->
+        <div id="internal-spec-section" style="text-align: center; margin-top: 24px;">
+          <button id="download-internal-spec-btn" class="ms-Button" 
+            style="font-size: 16px; padding: 12px 32px; border-radius: 8px; 
+                   background: #0078d4; color: white; border: none;
+                   transition: background 0.2s; cursor: pointer;"
+            onmouseover="this.style.background='#106ebe'"
+            onmouseout="this.style.background='#0078d4'">
+            <span class="ms-Button-label">📥 Download Internal Spec (SDTMIG v3.4)</span>
+          </button>
+          <div id="internal-spec-status" style="margin-top: 10px; font-size: 13px; color: #605e5c;"></div>
+        </div>
+
+        <!-- Generate SAS button (gray style) -->
         <div style="text-align: center; margin-top: 24px;">
           <button id="generate-dataset-specs-btn" class="ms-Button" 
             style="font-size: 16px; padding: 12px 32px; border-radius: 8px; 
@@ -543,6 +556,12 @@
     
     // Bind button events
     setTimeout(() => {
+      // Bind "Download Internal Spec" button
+      const internalSpecBtn = qs('download-internal-spec-btn');
+      if (internalSpecBtn) {
+        internalSpecBtn.addEventListener('click', downloadInternalSpec);
+      }
+      
       // Bind "Generate Dataset-Specific Specs" button
       const generateBtn = qs('generate-dataset-specs-btn');
       if (generateBtn && window.SpecDatasetSeparation) {
@@ -551,6 +570,41 @@
         });
       }
     }, 50);
+  }
+  
+  // Download Internal Spec Excel file
+  async function downloadInternalSpec() {
+    const btn = qs('download-internal-spec-btn');
+    const statusDiv = qs('internal-spec-status');
+    
+    // Update button state
+    btn.disabled = true;
+    btn.innerHTML = '<span class="ms-Button-label">⏳ Generating...</span>';
+    statusDiv.textContent = 'Generating Internal Spec Excel file...';
+    
+    // Call backend to generate the file
+    const response = await fetch(`${API_BASE_URL}/api/studies/${currentStudyId}/generate-internal-spec`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' }
+    });
+    
+    const result = await response.json();
+    
+    // Update UI with download link
+    btn.disabled = false;
+    btn.innerHTML = '<span class="ms-Button-label">✅ Download Ready</span>';
+    btn.style.background = '#107c10';
+    
+    const downloadUrl = `${API_BASE_URL}${result.downloadUrl}`;
+    statusDiv.innerHTML = `
+      <a href="${downloadUrl}" target="_blank" 
+         style="color: #0078d4; text-decoration: underline; font-weight: 500;">
+        📄 Click here to download: ${result.filename}
+      </a>
+    `;
+    
+    // Auto-open download in new tab
+    window.open(downloadUrl, '_blank');
   }
   
   // ===== 各个表格创建函数 =====

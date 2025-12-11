@@ -3378,6 +3378,46 @@ async function downloadDatasetSpecificSpecsZip(req, res) {
   }
 }
 
+// ===================== Internal Spec Generation =====================
+
+const { generateInternalSpecExcel, getDownloadUrl } = require('../services/SPEC_internal_spec_generation');
+
+/**
+ * Generate Internal Spec Excel and return download URL
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+async function generateInternalSpec(req, res) {
+  const { studyId } = req.params;
+  
+  // Generate the Excel file from database
+  const filePath = await generateInternalSpecExcel(studyId);
+  const downloadUrl = getDownloadUrl(filePath);
+  
+  res.json({
+    success: true,
+    downloadUrl: downloadUrl,
+    filename: require('path').basename(filePath)
+  });
+}
+
+/**
+ * Download Internal Spec Excel file
+ * @param {Object} req - Express request object
+ * @param {Object} res - Express response object
+ */
+async function downloadInternalSpec(req, res) {
+  const { filename } = req.params;
+  const filePath = require('path').join(__dirname, '..', 'temp', filename);
+  
+  res.download(filePath, filename, () => {
+    // Clean up temp file after download (optional delay for reliability)
+    setTimeout(() => {
+      require('fs').unlink(filePath, () => {});
+    }, 60000);
+  });
+}
+
 module.exports = {
   generateSUPPDetailsData,
   saveSpecSUPPDetailsData,
@@ -3394,5 +3434,7 @@ module.exports = {
   saveSpecTSDetailsData,
   getSpecTSDetailsData,
   generateDatasetSpecificSpecsAPI,
-  downloadDatasetSpecificSpecsZip
+  downloadDatasetSpecificSpecsZip,
+  generateInternalSpec,
+  downloadInternalSpec
 };

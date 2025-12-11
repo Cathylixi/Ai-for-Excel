@@ -10,6 +10,13 @@ const ANNOT_PAD = Number(process.env.ANNOT_PAD || 0);
 
 // 🆕 Question文本间隙检测阈值
 const QUESTION_GAP_THRESHOLD = Number(process.env.QUESTION_GAP_THRESHOLD || 30);
+const WORD_GAP_THRESHOLD = Number(process.env.WORD_GAP_THRESHOLD || 18);
+const LINE_HEIGHT_THRESHOLD = Number(process.env.LINE_HEIGHT_THRESHOLD || 15);
+const VISUAL_LINE_Y_GAP = Number(process.env.VISUAL_LINE_Y_GAP || 8);
+
+// OID Form 相关阈值
+const OID_COLUMN_TOLERANCE = Number(process.env.OID_COLUMN_TOLERANCE || 20); // 列归属容差（px）
+const OID_HEADER_KEYWORDS = ['Field Name', 'Data Type', 'Units', 'Values', 'Pre-Filled', 'Include', 'Field OID'];
 
 // Ensure temp directory exists at module load
 try {
@@ -25,7 +32,12 @@ module.exports = {
   ANNOT_GAP,
   ANNOT_BOX_W,
   ANNOT_PAD,
-  QUESTION_GAP_THRESHOLD
+  QUESTION_GAP_THRESHOLD,
+  WORD_GAP_THRESHOLD,
+  LINE_HEIGHT_THRESHOLD,
+  VISUAL_LINE_Y_GAP,
+  OID_COLUMN_TOLERANCE,
+  OID_HEADER_KEYWORDS
 };
 
 

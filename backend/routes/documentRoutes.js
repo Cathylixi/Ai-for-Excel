@@ -69,7 +69,9 @@ const {
   saveSpecTSDetailsData,
   getSpecTSDetailsData,
   generateDatasetSpecificSpecsAPI,
-  downloadDatasetSpecificSpecsZip
+  downloadDatasetSpecificSpecsZip,
+  generateInternalSpec,
+  downloadInternalSpec
 } = require('../controllers/SpecDocumentController');
 
 const router = express.Router();
@@ -258,6 +260,10 @@ router.post('/studies/:studyId/spec-ts-details-data', saveSpecTSDetailsData);
 // 🔥 新增：生成 Dataset-Specific Specs
 router.post('/studies/:studyId/generate-dataset-specs', generateDatasetSpecificSpecsAPI);
 router.get('/studies/:studyId/dataset-specs.zip', downloadDatasetSpecificSpecsZip);
+
+// Internal Spec generation and download routes
+router.post('/studies/:studyId/generate-internal-spec', generateInternalSpec);
+router.get('/download-internal-spec/:filename', downloadInternalSpec);
 
 // 🔥 新增：更新Spec创建状态
 router.post('/studies/:id/spec-status', updateSpecStatus);

@@ -601,6 +601,71 @@ const enhancedForms = addLabelOidToAllForms(formsByTitle);
 - Extract "OID" fields (unique identifiers)
 - Prepare for SDTM variable mapping
 
+### **Advanced Processing Logic (Label & OID Extraction)**
+
+The system uses a sophisticated multi-step strategy to handle complex CRF layouts, including "squashed" rows (where multiple visual lines are compressed into a single data row) and multi-column tables.
+
+#### **A. Label Form Extraction Strategy**
+
+**Goal**: Extract Question text, Index (question number), and Value (options) from form rows.
+
+1.  **Visual Unpacking (Step 0)**:
+    *   **Problem**: PDF parsers sometimes group vertically stacked text (e.g., 10 lines of "Version 1.0" to "Version 10.0") into a single row object.
+    *   **Solution**: `groupWordsIntoVisualLines(words)`
+    *   **Logic**: Sorts words by Y-coordinate. If vertical gap > `VISUAL_LINE_Y_GAP` (8px), splits words into distinct "visual lines".
+
+2.  **Anchor Analysis (Step 1)**:
+    *   **Target**: The first visual line (Anchor Row).
+    *   **Action**:
+        *   **Find Index**: Scans for a trailing integer (e.g., "4") at the end of the line.
+        *   **Find Gap**: Scans for a horizontal gap > `WORD_GAP_THRESHOLD` (18px).
+        *   **Define Zones**:
+            *   **Question Zone**: Left side of the gap.
+            *   **Value Zone**: Right side of the gap.
+
+3.  **Recursive Classification (Step 2)**:
+    *   **Target**: Subsequent visual lines (Line 2 to Line N).
+    *   **Action**: Calculates the center X-coordinate of each line.
+    *   **Logic**:
+        *   If center is in **Value Zone** → Append to Value.
+        *   If center is in **Question Zone** → Append to Question.
+        *   **Smart Fallback**: If Line 1 didn't split (no Value Zone), but Line 2 is significantly to the right (> Question Max + 40px) → Create new Value Zone.
+
+#### **B. OID Form Extraction Strategy**
+
+**Goal**: Extract structural metadata tables (Field Name, Data Type, Units, Values, OID).
+
+1.  **Dynamic Header Detection**:
+    *   Scans the first 30 rows for keywords: `Field Name`, `Data Type`, `Units`, `Values`.
+    *   **Outcome**: Identifies the header row index.
+
+2.  **Dynamic Column Zoning**:
+    *   **Action**: Parses the header row to determine the X-coordinate range (min/max) for each column.
+    *   **Padding**: Adds `OID_COLUMN_TOLERANCE` (20px) to the left and right of each column header to define the Zone.
+    *   **Result**: Creates a `columnZones` map (e.g., `FieldName: [50, 150]`, `DataType: [160, 220]`).
+
+3.  **Structured Row Parsing**:
+    *   **Visual Unpacking**: Applies same logic as Label Form to handle squashed rows.
+    *   **Index Extraction**: Identifies leading integer (OID index is at the *start*).
+    *   **Column Binning**: Iterates through all words and assigns them to columns (`FieldName`, `DataType`, `Values`, etc.) based on which Zone their **center X-coordinate** falls into.
+
+4.  **Multi-Row Merging**:
+    *   **Problem**: Long descriptions (e.g., Values list) span multiple rows.
+    *   **Solution**: `mergeConsecutiveOidRows`
+    *   **Logic**:
+        *   If the next row has **no Index** (no leading integer) AND is vertically close (< `LINE_HEIGHT_THRESHOLD` = 15px gap), it is treated as a continuation.
+        *   Content is appended to the respective columns based on Zones.
+
+### **C. Critical Thresholds & Constants**
+
+| Constant Name | Value | Purpose |
+| :--- | :--- | :--- |
+| `VISUAL_LINE_Y_GAP` | **8px** | Used in **Visual Unpacking**. If vertical distance between words > 8px, they are split into separate visual lines. |
+| `WORD_GAP_THRESHOLD` | **18px** | Used in **Label Form**. Minimum horizontal gap required to split Question and Value in the Anchor Row. |
+| `LINE_HEIGHT_THRESHOLD` | **15px** | Used in **Multi-Row Merging**. Maximum vertical gap allowed between rows to consider them part of the same item. |
+| `OID_COLUMN_TOLERANCE` | **20px** | Used in **OID Zoning**. Extra padding added to column header width to capture wider content. |
+| `VALUE_ZONE_OFFSET` | **40px** | Used in **Label Fallback**. If a line is > 40px to the right of the Question Zone, it's forced into a new Value Zone. |
+
 ### **Final Form Structure**
 ```json
 {

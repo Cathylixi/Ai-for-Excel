@@ -3404,26 +3404,27 @@ async function uploadCrfFile(req, res) {
     
     try {
       if (req.file.mimetype === 'application/pdf') {
-        // console.log('📄 开始解析CRF PDF文件...');
+        console.log('📄 [CRF Upload Step 1/6] Starting PDF Parsing (Pypdf)...');
         const pypdfResult = await processPdfWithPypdf(req.file.buffer);
+        console.log('✅ [CRF Upload Step 1/6] PDF Parsing Completed');
+        
         crfParseResult = await formatResultForCrfSap(pypdfResult); // 🔥 使用CRF专用解析
         
         // 🔥 新增：提取CRF PDF的词位置信息（简化版）
         try {
-          // console.log('🔍 开始提取CRF词位置信息...');
+          console.log('🔍 [CRF Upload Step 2/6] Starting Word Coordinate Extraction...');
           const wordsResult = await extractCrfWordsOnly(req.file.buffer, id);
-          // console.log(`✅ CRF词位置提取完成`);
-          // console.log(`📊 CRF统计: ${wordsResult.metadata?.total_words || 0} 词, ${wordsResult.metadata?.total_pages || 0} 页`);
-          
+          console.log('✅ [CRF Upload Step 2/6] Word Coordinate Extraction Completed');
+
           // 保存词位置结果
           if (wordsResult.success) {
             wordsWithPosition = wordsResult;
             
             // 🔥 新增：将词位置转换为行位置
             try {
-              // console.log('🔄 开始将词位置转换为行位置...');
+              console.log('🔄 [CRF Upload Step 3/6] Starting Row Construction...');
               const rowsResult = processWordsToRows(wordsResult, 3.5); // 使用3.5pt的Y坐标容差
-              // console.log(`✅ 行位置转换完成: ${rowsResult.metadata?.total_rows || 0} 行, ${rowsResult.metadata?.total_words || 0} 词`);
+              console.log('✅ [CRF Upload Step 3/6] Row Construction Completed');
               
               if (rowsResult.success) {
                 rowsWithPosition = rowsResult;
@@ -3436,15 +3437,20 @@ async function uploadCrfFile(req, res) {
                   }));
                   // 只有存在OPENAI_API_KEY时才调用，避免阻塞上传
                   if (process.env.OPENAI_API_KEY && firstPages.length > 0) {
+                    console.log('🤖 [CRF Upload Step 4/6] Starting AI Pattern Recognition...');
                     const { identifyCrfHeaderFooterAndFormPatterns } = require('../services/openaiService');
                     const aiPatterns = await identifyCrfHeaderFooterAndFormPatterns(firstPages);
+                    
                     if (aiPatterns && aiPatterns.success) {
+                      console.log('✅ [CRF Upload Step 4/6] AI Pattern Recognition Completed');
                       identifiedPatterns = aiPatterns;
                       
                       // 🔥 新增：基于AI patterns和行数据提取完整的Form信息
                       try {
-                        // console.log('🎯 开始基于AI patterns处理CRF Forms...');
+                        console.log('🎯 [CRF Upload Step 5/6] Starting Form Detection & Processing...');
                         const formData = processCrfForms(rowsResult, identifiedPatterns);
+                        console.log('✅ [CRF Upload Step 5/6] Form Detection & Processing Completed');
+
                         
                         // 更新crfFormList和crfFormName（不再为空）
                         if (formData && formData.crfFormList) {
@@ -3516,6 +3522,7 @@ async function uploadCrfFile(req, res) {
 
     // 使用原子$set更新，避免并发保存互相覆盖
     const crfUploadedAt = new Date();
+    console.log('💾 [CRF Upload Step 6/6] Saving Results to Database...');
     const updatedStudy = await Study.findByIdAndUpdate(
       id,
       {
@@ -3540,9 +3547,10 @@ async function uploadCrfFile(req, res) {
       },
       { new: true }
     );
+    console.log('✅ [CRF Upload Step 6/6] All CRF Upload Steps Completed Successfully');
 
     // 🎨 **移除自动注解**: CRF上传后不自动生成注解，等待用户手动触发
-    console.log('✅ CRF上传完成，注解生成将等待用户手动触发');
+    // console.log('✅ CRF上传完成，注解生成将等待用户手动触发');
     // 注解生成现在通过 /generate-crf-annotation-rects API 手动触发
 
     return res.json({
@@ -5221,15 +5229,17 @@ async function saveCrfCorrectedDataBatch(req, res) {
     }
 
     // Parse current batch Excel data into Mapping_corrected_CRF_Annotation_Checklist structure
+    const crfFormList = study?.files?.crf?.crfUploadResult?.crfFormList || {};
     const mappingCorrectedByForm = parseExcelDataToMappingCorrected(batchData.rows);
-    const formsInBatch = Object.keys(mappingCorrectedByForm);
+    const enrichedMappingByForm = enrichCorrectedMappingsWithMeta(crfFormList, mappingCorrectedByForm);
+    const formsInBatch = Object.keys(enrichedMappingByForm);
     
     console.log(`🔧 [Backend] Processing ${formsInBatch.length} forms in batch ${batchIndex + 1}:`, formsInBatch);
     
     // Update database with current batch data (incremental update)
     const updateOperations = {};
-    Object.keys(mappingCorrectedByForm).forEach(formKey => {
-      updateOperations[`files.crf.crfUploadResult.crfFormList.${formKey}.Mapping_corrected_CRF_Annotation_Checklist`] = mappingCorrectedByForm[formKey];
+    Object.keys(enrichedMappingByForm).forEach(formKey => {
+      updateOperations[`files.crf.crfUploadResult.crfFormList.${formKey}.Mapping_corrected_CRF_Annotation_Checklist`] = enrichedMappingByForm[formKey];
     });
     
     await Study.findByIdAndUpdate(studyId, { $set: updateOperations });
@@ -5321,21 +5331,23 @@ async function saveCrfCorrectedData(req, res) {
         message: 'Study not found'
       });
     }
-
+    
     // Parse Excel data into Mapping_corrected_CRF_Annotation_Checklist structure
+    const crfFormList = study?.files?.crf?.crfUploadResult?.crfFormList || {};
     const mappingCorrectedByForm = parseExcelDataToMappingCorrected(excelData.rows);
+    const enrichedMappingByForm = enrichCorrectedMappingsWithMeta(crfFormList, mappingCorrectedByForm);
     
     // Generate Mapping_corrected_form_sdtm_mapping_unique for each form
     const formSdtmMappingUniqueByForm = {};
-    Object.keys(mappingCorrectedByForm).forEach(formKey => {
-      const correctedMappings = mappingCorrectedByForm[formKey];
+    Object.keys(enrichedMappingByForm).forEach(formKey => {
+      const correctedMappings = enrichedMappingByForm[formKey];
       formSdtmMappingUniqueByForm[formKey] = extractUniqueFormMappingsForForm(correctedMappings);
     });
     
     // Update database with both corrected mappings and form domain mappings
     const updateOperations = {};
-    Object.keys(mappingCorrectedByForm).forEach(formKey => {
-      updateOperations[`files.crf.crfUploadResult.crfFormList.${formKey}.Mapping_corrected_CRF_Annotation_Checklist`] = mappingCorrectedByForm[formKey];
+    Object.keys(enrichedMappingByForm).forEach(formKey => {
+      updateOperations[`files.crf.crfUploadResult.crfFormList.${formKey}.Mapping_corrected_CRF_Annotation_Checklist`] = enrichedMappingByForm[formKey];
       updateOperations[`files.crf.crfUploadResult.crfFormList.${formKey}.Mapping_corrected_form_sdtm_mapping_unique`] = formSdtmMappingUniqueByForm[formKey];
     });
     
@@ -5390,6 +5402,107 @@ function parseExcelDataToMappingCorrected(excelRows) {
   });
   
   return mappingCorrectedByForm;
+}
+
+/**
+ * Extract a short abbreviation from Form_Mapping string.
+ * Example: "DM (Demographics)" -> "DM"
+ * @param {string} formMapping - Original Form_Mapping string
+ * @returns {string|null} Abbreviation or null
+ */
+function extractFormMappingAbbreviation(formMapping) {
+  if (!formMapping || typeof formMapping !== 'string') {
+    return null;
+  }
+  
+  // Keep special marker as is
+  const trimmed = formMapping.trim();
+  if (trimmed === '[Not Submitted]') {
+    return trimmed;
+  }
+  
+  // Take first segment before ';'
+  const firstSegment = trimmed.split(';')[0].trim();
+  if (!firstSegment) {
+    return null;
+  }
+  
+  // Remove parentheses and content inside
+  const withoutParen = firstSegment.replace(/\(.*?\)/g, '').trim();
+  if (!withoutParen) {
+    return null;
+  }
+  
+  // Take first non-empty token as abbreviation
+  const parts = withoutParen.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) {
+    return null;
+  }
+  
+  return parts[0];
+}
+
+/**
+ * Enrich Mapping_corrected_CRF_Annotation_Checklist entries with
+ * Form_Mapping_Abbreviation, type (from OIDForm.DataType), and value (from LabelForm.value_part).
+ * @param {Object} crfFormList - Original crfFormList from database
+ * @param {Object} mappingCorrectedByForm - Parsed corrected mappings keyed by formKey
+ * @returns {Object} Enriched mappingCorrectedByForm
+ */
+function enrichCorrectedMappingsWithMeta(crfFormList, mappingCorrectedByForm) {
+  const result = {};
+  
+  Object.keys(mappingCorrectedByForm || {}).forEach(formKey => {
+    const correctedList = mappingCorrectedByForm[formKey] || [];
+    const form = crfFormList && typeof crfFormList === 'object' ? crfFormList[formKey] : null;
+    
+    const labelByIndex = {};
+    const oidByIndex = {};
+    
+    if (form) {
+      if (Array.isArray(form.LabelForm)) {
+        form.LabelForm.forEach(entry => {
+          if (typeof entry?.match_index === 'number') {
+            labelByIndex[entry.match_index] = entry;
+          }
+        });
+      }
+      if (Array.isArray(form.OIDForm)) {
+        form.OIDForm.forEach(entry => {
+          if (typeof entry?.match_index === 'number') {
+            oidByIndex[entry.match_index] = entry;
+          }
+        });
+      }
+    }
+    
+    result[formKey] = correctedList.map(item => {
+      const index = Number(item.Question_Number);
+      const abbreviation = extractFormMappingAbbreviation(item.Form_Mapping);
+      
+      let type = null;
+      let value = null;
+      
+      const oidEntry = oidByIndex[index];
+      if (oidEntry && oidEntry.content && oidEntry.content.columns && oidEntry.content.columns.DataType && typeof oidEntry.content.columns.DataType.text === 'string') {
+        type = oidEntry.content.columns.DataType.text;
+      }
+      
+      const labelEntry = labelByIndex[index];
+      if (labelEntry && labelEntry.content && labelEntry.content.value_part && typeof labelEntry.content.value_part.text === 'string') {
+        value = labelEntry.content.value_part.text;
+      }
+      
+      return {
+        ...item,
+        Form_Mapping_Abbreviation: abbreviation,
+        type,
+        value
+      };
+    });
+  });
+  
+  return result;
 }
 
 // 辅助函数：从单个form的修正数据中提取唯一的Form_Mapping
